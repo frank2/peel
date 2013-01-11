@@ -66,6 +66,7 @@ try:
    LoadLibraryA = ctypes.windll.kernel32.LoadLibraryA
    LoadLibraryW = ctypes.windll.kernel32.LoadLibraryW
    GetLastError = ctypes.windll.kernel32.GetLastError
+   GetModuleHandleW = ctypes.windll.kernel32.GetModuleHandleW
 
    import ctypes.wintypes
 except AttributeError:
@@ -74,6 +75,7 @@ except AttributeError:
    LoadLibraryA = None
    LoadLibraryW = None
    GetLastError = None
+   GetModuleHandleW = None
 
 # Various image signatures
 IMAGE_DOS_SIGNATURE    = 0x5A4D    
@@ -3449,30 +3451,65 @@ class STDCALLPrototype(FunctionPrototype):
       self.function = prototype(self.address.rva() + self.address.image.virtual_base())
       return self.function
 
-class MedianPrototype(FunctionPrototype):
+class AssemblyPrototype(FunctionPrototype):
+   ASM = None
+
    def parse_function(self):
-      if not self.address.valid_rva():
-         raise FunctionError("prototype address is an invalid RVA")
+      if not VirtualProtect:
+         raise FunctionError("host system isn't Windows or doesn't have Wine")
 
-      median = self.pre_median()
-      self.median = ctypes.create_string_buffer(median)
-      self.post_median()
+      self.pre_build()
+      self.instructions = ctypes.create_string_buffer(self.build_instructions())
+      self.post_build()
 
-      VirtualProtect(self.median, len(self.median), 0x40, ctypes.byref(ctypes.c_int()))
+      VirtualProtect(self.instructions, len(self.instructions), 0x40, ctypes.byref(ctypes.c_int()))
       prototype = ctypes.WINFUNCTYPE(self.RETTYPE, *self.ARGTYPES)
-      self.function = prototype(ctypes.addressof(self.median))
+      self.function = prototype(ctypes.addressof(self.instructions))
       return self.function
 
-   def pre_median(self):
-      raise FunctionError("MedianPrototype::pre_median undefined")
+   def build_instructions(self):
+      if not getattr(self, 'ASM', None):
+         raise FunctionError("AssemblyPrototype::build_instructions undefined")
+      else:
+         raise FunctionError("use of the ASM class global not yet implemented")
+      
+   def pre_build(self):
+      pass
 
-   def post_median(self):
-      if not getattr(self, 'call_offset', None):
-         return
+   def post_build(self):
+      pass
 
-      median_addr = ctypes.addressof(self.median)
-      target_addr = self.address.rva() + self.address.image.virtual_base()
-      self.median[self.call_offset-4:self.call_offset] = struct.pack('<l', target_addr - (median_addr+self.call_offset))
+   @classmethod
+   def call(cls, *args):
+      return cls(cls.ADDRESS)(*args)
+
+class MedianPrototype(AssemblyPrototype):
+   def pre_call(self):
+      return str()
+
+   def post_call(self):
+      return str()
+
+   def build_instructions(self):
+      pre_call = self.pre_call()
+      call = '\xe8\x00\x00\x00\x00'
+      post_call = self.post_call()
+
+      self.call_offset = len(pre_call)+len(call)
+
+      return pre_call+call+post_call
+
+   def post_build(self):
+      function_address = self.address.rva()
+      image_base = self.address.image.virtual_base()
+      median_base = ctypes.addressof(self.instructions)
+      new_address = self.address.image.calculate_delta(function_address + image_base, median_base + self.call_offset)
+
+      self.instructions[self.call_offset-4:self.call_offset] = struct.pack('<L', new_address)
+
+   @classmethod
+   def call(cls, *args):
+      return FunctionPrototype.call(cls, *args)
 
 class UsercallPrototype(MedianPrototype):
    MOVEBP_INSTRUCTIONS = {'eax': '\x8b\x45', 'ebx': '\x8b\x5d', 'ecx': '\x8b\x4d',
@@ -3488,7 +3525,10 @@ class UsercallPrototype(MedianPrototype):
 
       MedianPrototype.__init__(self, address)
 
-   def pre_median(self):
+   def pre_call(self):
+      if not self.address.valid_rva():
+         raise FunctionError("prototype address is an invalid RVA")
+
       if not UsercallPrototype.MOVEBP_INSTRUCTIONS.has_key(self.return_register):
          raise FunctionError("invalid return register: %s" % self.return_register)
 
@@ -3514,11 +3554,6 @@ class UsercallPrototype(MedianPrototype):
 
       header = "\x55\x89\xe5"      # push ebp / mov    ebp,esp
 
-      if argc - len(self.target_registers) > 0:
-         stack_cleanup = "\x83\xec%s" % struct.pack('<B', argc - len(self.target_registers))
-      else:
-         stack_cleanup = str()
-
       registers = self.target_registers[:]
       stack = str()
 
@@ -3532,12 +3567,20 @@ class UsercallPrototype(MedianPrototype):
          index += 4
          argc -= 1
 
-      call = '\xe8\x00\x00\x00\x00' # placeholder for when we get the buffer
+      return header+stack
+
+   def post_call(self):
+      argc = len(self.ARGTYPES)
 
       if not self.return_register == 'eax':
          retval = UsercallPrototype.MOVEAX_INSTRUCTIONS[self.return_register]
       else:
          retval = str()
+
+      if argc - len(self.target_registers) > 0:
+         stack_cleanup = "\x83\xec%s" % struct.pack('<B', argc - len(self.target_registers))
+      else:
+         stack_cleanup = str()
 
       footer = ("\x5d")          # pop    ebp
 
@@ -3546,11 +3589,7 @@ class UsercallPrototype(MedianPrototype):
       else:
          ret = "\xc2%s" % struct.pack('<H', len(self.ARGTYPES)*4)
 
-      pre_call = ''.join([header,stack,call])
-      post_call = ''.join([retval,stack_cleanup,footer,ret])
-
-      self.call_offset = len(pre_call)
-      return pre_call+post_call
+      return retval+stack_cleanup+footer+ret
 
    @classmethod
    def call(cls, *args):
@@ -3592,6 +3631,30 @@ class WinMainPrototype(STDCALLPrototype):
       else:
          return cls(cls.ADDRESS)(*args)
 
+class GetModuleHandleP(AssemblyPrototype):
+   ASM = '''
+      mov      eax,  [fs:0x18]
+      mov      eax,  [eax+0x30]
+      mov      eax,  [eax+8]
+      ret
+   '''
+
+   def build_instructions(self):
+      return ('\x64\xa1\x18\x00\x00\x00' '\x8b\x40\x30' '\x8b\x40\x08' '\xc3')
+
+class SetModuleHandle(AssemblyPrototype):
+   ARGTYPES = [ctypes.c_ulong]
+   ASM = '''
+      mov      eax,  [fs:0x18]
+      mov      eax,  [eax+0x30]
+      mov      ecx,  [esp+4]
+      mov      [eax+8],ecx
+      ret      4
+   '''
+
+   def build_instructions(self):
+      return ('\x64\xa1\x18\x00\x00\x00' '\x8b\x40\x30' '\x8b\x4c\x24\x04' '\x89\x48\x08' '\xc2\x04\x00')
+
 class PEImage:
    XP_COMPATABILITY = 1
    VISTA_COMPATABILITY = 2
@@ -3606,6 +3669,8 @@ class PEImage:
       self._offset_pool = dict()
       self._rva_pool = dict()
       self._va_pool = dict()
+      self._handle = 0
+      self._hijacked = 0
 
       if kwargs.setdefault('make_executable', 0):
          kwargs['map_image'] = 1
@@ -3926,12 +3991,10 @@ class PEImage:
       if not current_base:
          current_base = self.virtual_base()
 
-      delta = current_base - int(self.IMAGE_OPTIONAL_HEADER.ImageBase)
+      return self.calculate_delta(current_base,int(self.IMAGE_OPTIONAL_HEADER.ImageBase))
 
-      if delta < 0:
-         delta += 0x100000000
-
-      return delta
+   def calculate_delta(self, left, right):
+      return calculate_delta(left, right, self.architecture())
 
    def relocate(self, address, target_base=None, buff=None):
       if not buff:
@@ -4042,6 +4105,35 @@ class PEImage:
                iat += 4
 
       DBG1("successfully parsed and mapped the import table")
+
+   def hijack_module_handle(self):
+      if not GetModuleHandleW:
+         raise ImageError("host system isn't Windows or doesn't have Wine")
+
+      if self._hijacked:
+         return
+
+      if not self._handle:
+         self._handle = self.virtual_base()
+      
+      old_handle = GetModuleHandleP.call()
+      SetModuleHandle.call(self._handle)
+      self._handle = old_handle
+
+      self._hijacked = 1
+
+   def return_module_handle(self):
+      if not GetModuleHandleW:
+         raise ImageError("host system isn't Windows or doesn't have Wine")
+
+      if not self._hijacked:
+         return
+
+      original_handle = GetModuleHandleP.call()
+      SetModuleHandle.call(self._handle)
+      self._handle = original_handle
+
+      self._hijacked = 0
 
    def make_executable(self):
       # FIXME this won't work on 64-bit systems because ctypes is a jerk! I'm
@@ -5256,3 +5348,13 @@ def parse_sections_from_data(data, sections):
             DBG2(repr(section))
 
    return parsed_sections
+
+# FIXME this only returns unsigned integers. that's not what delta implies.
+def calculate_delta(left,right,arch=0):
+   result = left - right
+
+   if result < 0:
+      result += 0x100000000 << (32 * arch)
+      result &= (0x100000000 << (32 * arch)) - 1
+
+   return result
