@@ -4154,13 +4154,14 @@ class PEImage:
 
    def align_to_file(self, value):
       optional = self.get_optional_header()
-      return adjust_file_alignment(value, int(optional.FileAlignment))
+      return align_address_forward(value, int(optional.FileAlignment))
 
    def align_to_section(self, value):
       optional = self.get_optional_header()
-      return adjust_section_alignment(value, 
-                                      int(optional.SectionAlignment), 
-                                      int(optional.FileAlignment))
+      if int(optional.SectionAlignment) < 0x1000:
+         return align_address_forward(value, int(optional.SectionAlignment))
+      else:
+         return align_address_forward(value, int(optional.FileAlignment))
 
    def export_directory(self):
       datadir = self.get_data_directories()
@@ -4980,20 +4981,15 @@ def offset_to_rva(rva_section,raw_section,offset):
 def offset_to_va(base,rva_section,raw_section,offset):
    return offset - raw_section + rva_section + base
 
-def adjust_file_alignment(value, file_alignment):
-   if file_alignment < 0x200:
-      return value
-
-   return (value / 0x200) * 0x200
-
-def adjust_section_alignment(value, section_alignment, file_alignment):
-   if section_alignment < 0x1000: # page size
-      section_alignment = file_alignment
-
-   if section_alignment and value % section_alignment:
-      return section_alignment * (value / section_alignment)
-
-   return value
+def align_address_forward(value, alignment):
+   """
+   This trick is brought to you by the letter `Pi`
+   and the number `align forward to offset using ones' compliment bitmask`
+   """
+   aligned = int((value + (alignment - 0x1)) & ~(alignment - 0x1))
+   if value > alignment:
+      raise AddressError("Value or Alignment should not be negative.")
+   return aligned
 
 def section_by_offset(sections, offset):
    DBG4('section by offset: 0x%x', offset)
