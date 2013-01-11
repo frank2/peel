@@ -3213,10 +3213,10 @@ class PEBuffer:
          if int(section.SizeOfRawData) > self.raw_length():
             continue
 
-         if self.image.adjust_file_alignment(int(section.PointerToRawData)) > self.raw_length():
+         if self.image.align_to_file(int(section.PointerToRawData)) > self.raw_length():
             continue
 
-         adjusted_addr = self.image.adjust_section_alignment(int(section.VirtualAddress))
+         adjusted_addr = self.image.align_to_section(int(section.VirtualAddress))
 
          if adjusted_addr > max_addr:
             continue
@@ -4152,12 +4152,11 @@ class PEImage:
       else:
          return -1
 
-   # NOTE these function names are misleading. they should be renamed to "align_to_{file,section}"
-   def adjust_file_alignment(self, value):
+   def align_to_file(self, value):
       optional = self.get_optional_header()
       return adjust_file_alignment(value, int(optional.FileAlignment))
 
-   def adjust_section_alignment(self, value):
+   def align_to_section(self, value):
       optional = self.get_optional_header()
       return adjust_section_alignment(value, 
                                       int(optional.SectionAlignment), 
