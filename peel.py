@@ -4987,7 +4987,7 @@ def align_address_forward(value, alignment):
    and the number `align forward to offset using ones' compliment bitmask`
    """
    aligned = int((value + (alignment - 0x1)) & ~(alignment - 0x1))
-   if value > alignment:
+   if value > aligned:
       raise AddressError("Value or Alignment should not be negative.")
    return aligned
 
