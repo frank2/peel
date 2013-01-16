@@ -43,14 +43,20 @@
 # of extremely odd quirks and other interesting PE file oddities for testing.
 # http://code.google.com/p/corkami/
 
+import binascii
 import code
 import ctypes
 import hashlib
 import math
 import mmap
-import time
+import os
+import random
+import re
 import struct
+import subprocess
 import sys
+import tempfile
+import time
 import zlib
 
 # TODO add "set_$attr" functions where get/parse exist (mostly just for 
@@ -67,6 +73,11 @@ try:
    LoadLibraryW = ctypes.windll.kernel32.LoadLibraryW
    GetLastError = ctypes.windll.kernel32.GetLastError
    GetModuleHandleW = ctypes.windll.kernel32.GetModuleHandleW
+   AddVectoredExceptionHandler = ctypes.windll.kernel32.AddVectoredExceptionHandler
+   RemoveVectoredExceptionHandler = ctypes.windll.kernel32.RemoveVectoredExceptionHandler
+   ExpandEnvironmentStringsA = ctypes.windll.kernel32.ExpandEnvironmentStringsA
+
+   WIN32_COMPATIBLE = 1
 
    import ctypes.wintypes
 except AttributeError:
@@ -76,6 +87,11 @@ except AttributeError:
    LoadLibraryW = None
    GetLastError = None
    GetModuleHandleW = None
+   AddVectoredExceptionHandler = None
+   RemoveVectoredExceptionHandler = None
+   ExpandEnvironmentStringsA = None
+
+   WIN32_COMPATIBLE = 0
 
 # Various image signatures
 IMAGE_DOS_SIGNATURE    = 0x5A4D    
@@ -223,6 +239,10 @@ IMAGE_SUBSYSTEM_EFI_ROM                    = 13
 IMAGE_SUBSYSTEM_XBOX                       = 14
 IMAGE_SUBSYSTEM_WINDOWS_BOOT_APPLICATION   = 16
 
+# Context record constants
+SIZE_OF_80387_REGISTERS =     80
+MAXIMUM_SUPPORTED_EXTENSION = 512
+
 ###############################################################################
 ## Debug stuff
 ###############################################################################
@@ -309,7 +329,8 @@ class Address:
    VALUE_VA =     0x0
    VALUE_RVA =    0x1
    VALUE_OFFSET = 0x2
-   VALUES = ['va','rva','offset']
+   VALUE_PVA =    0x4
+   VALUES = ['va','rva','offset','pva']
    INVALID_ADDRESS = -1
 
    def __init__(self, image, value, value_type):
@@ -351,6 +372,10 @@ class Address:
          self._offset = self.get_offset()
 
       return self._offset
+
+   # FIXME make PVAs an actual thing down the road.
+   def pva(self):
+      return self.rva() + self.image.virtual_base() 
 
    def get_rva(self):
       if self.is_null():
@@ -803,6 +828,14 @@ class Address:
 
    def __int__(self):
       return self._value
+
+class PVA(Address):
+   def __init__(self, image, pva):
+      Address.__init__(self, image, pva, Address.VALUE_PVA)
+
+   @classmethod
+   def orphan(cls, value=0):
+      return PVA(None, value)
 
 class RVA(Address):
    def __init__(self, image, rva):
@@ -1279,7 +1312,7 @@ class DataArray:
       return cmp(self.get_elements(),other.get_elements())
 
    def __repr__(self):
-      return '<DataArray: "%s">' % self.read()
+      return '<DataArray: "%s">' % binascii.hexlify(self.read())
 
    def __hash__(self):
       return hash(self.read())
@@ -1587,6 +1620,132 @@ class NumericDataStub(Data):
          return
 
       self.address.write(self._data)
+
+   def _squeeze_value(self, value):
+      resized = value & (1 << (8 * self.size())) - 1
+
+      if resized < 0 and not self.signed:
+         resized *= -1
+
+      return resized
+
+   def __add__(self, val): 
+      return int(self)+val
+
+   def __radd__(self, val):
+      return self+val
+
+   def __iadd__(self, val):
+      self.set_value(self._squeeze_value(self+val))
+      return self
+
+   def __sub__(self, val):
+      return int(self)-val
+
+   def __rsub__(self, val):
+      return val-int(self)
+
+   def __isub__(self, val):
+      self.set_value(self._squeeze_value(self-val))
+      return self
+
+   def __mul__(self, val):
+      return int(self)*val
+
+   def __rmul__(self, val):
+      return self*val
+
+   def __imul__(self, val):
+      self.set_value(self._squeeze_value(self*val))
+      return self
+
+   def __div__(self, val):
+      return int(self)/val
+
+   def __rdiv__(self, val):
+      return val/int(self)
+
+   def __idiv__(self, val):
+      self.set_value(self._squeeze_value(self/val))
+      return self
+
+   def __mod__(self, val):
+      return int(self) % val
+
+   def __rmod__(self, val):
+      return val % int(self)
+
+   def __imod__(self, val):
+      self.set_value(self._squeeze_value(self%val))
+      return self
+
+   def __pow__(self, val, modulo=None):
+      if modulo == None:
+         return int(self) ** val
+      else:
+         return int(self) ** val % modulo
+
+   def __rpow__(self, val):
+      return val ** int(self)
+
+   def __ipow__(self, val, modulo=None):
+      if modulo == None:
+         result = self ** val
+      else:
+         result = self ** val % modulo
+
+      self.set_value(self._squeeze_value(result))
+      return self
+
+   def __lshift__(self, val):
+      return int(self) << val
+
+   def __rlshift__(self, val):
+      return val << int(self)
+
+   def __ilshift__(self, val):
+      self.set_value(self._squeeze_value(self << val))
+      return self
+
+   def __rshift__(self, val):
+      return int(self) >> val
+
+   def __rrshift__(self, val):
+      return val >> int(self)
+
+   def __irshift__(self, val):
+      self.set_value(self._squeeze_value(self >> val))
+      return self
+
+   def __and__(self, val):
+      return int(self) & val
+
+   def __rand__(self, val):
+      return val & int(self)
+
+   def __iand__(self, val):
+      self.set_value(self._squeeze_value(self & val))
+      return self
+
+   def __xor__(self, val):
+      return int(self) ^ val
+
+   def __rxor__(self, val):
+      return val ^ int(self)
+
+   def __ixor__(self, val):
+      self.set_value(self._squeeze_value(self ^ val))
+      return self
+
+   def __or__(self, val):
+      return int(self) | val
+
+   def __ror__(self, val):
+      return val | int(self)
+
+   def __ior__(self, val):
+      self.set_value(self._squeeze_value(self | val))
+      return self
 
    def __int__(self):
       return self.get_value()
@@ -2214,6 +2373,9 @@ class SectionArray(DataArray):
       section = self._new_section(**kwargs)
       self.append_element(section)
 
+      if getattr(self, 'address'):
+         self.address.image.IMAGE_FILE_HEADER.NumberOfSections += 1
+
    def insert_section(self, **kwargs):
       section = self._new_section(**kwargs)
       self.insert_element(kwargs['index'], section)
@@ -2308,6 +2470,48 @@ class SectionArray(DataArray):
 
 IMAGE_SECTION_HEADER = Section
 PIMAGE_SECTION_HEADER = SectionArray
+
+class FloatingSaveArea(Struct):
+   FIELDS = [('ControlWord',           DWORD),
+             ('StatusWord',            DWORD),
+             ('TagWord',               DWORD),
+             ('ErrorOffset',           DWORD),
+             ('ErrorSelector',         DWORD),
+             ('DataOffset',            DWORD),
+             ('DataSelector',          DWORD),
+             ('RegisterArea',          LPBYTE,     SIZE_OF_80387_REGISTERS),
+             ('Cr0NpxState',           DWORD)]
+
+FLOATING_SAVE_AREA = FloatingSaveArea
+
+class Context(Struct):
+   FIELDS = [('ContextFlags',          DWORD),
+             ('Dr0',                   DWORD),
+             ('Dr1',                   DWORD),
+             ('Dr2',                   DWORD),
+             ('Dr3',                   DWORD),
+             ('Dr6',                   DWORD),
+             ('Dr7',                   DWORD),
+             ('FloatSave',             FLOATING_SAVE_AREA),
+             ('SegGs',                 DWORD),
+             ('SegFs',                 DWORD),
+             ('SegEs',                 DWORD),
+             ('SegDs',                 DWORD),
+             ('Edi',                   DWORD),
+             ('Esi',                   DWORD),
+             ('Ebx',                   DWORD),
+             ('Edx',                   DWORD),
+             ('Ecx',                   DWORD),
+             ('Eax',                   DWORD),
+             ('Ebp',                   DWORD),
+             ('Eip',                   DWORD),
+             ('SegCs',                 DWORD),
+             ('EFlags',                DWORD),
+             ('Esp',                   DWORD),
+             ('SegSs',                 DWORD),
+             ('ExtendedRegisters',     LPBYTE,     MAXIMUM_SUPPORTED_EXTENSION)]
+
+CONTEXT = Context
 
 ###############################################################################
 ## Data Directories
@@ -3397,19 +3601,715 @@ class PEBuffer:
 ###############################################################################
 ## The star of the show
 ###############################################################################
+LINK_IDENTIFIERS = set()
+
 class ImageError(PEELError): # TODO some contextual stuff
    pass
 
 class FunctionError(PEELError):
    pass
 
+class AssemblyError(PEELError):
+   pass
+
+# TODO the error context class
+class ExceptionError(FunctionError):
+   def __init__(self, context):
+      self.context = context
+
+   def __str__(self):
+      return 'Function prototype raised an exception; see context for details.'
+
+class Link:
+   DATA = '\x00\x00\x00\x00'
+   SIZE = 4
+   STORAGE = 0
+
+   def __init__(self, **kwargs):
+      self.storage = kwargs.setdefault('storage', self.STORAGE)
+      self.data = kwargs.setdefault('data', self.DATA)
+      self.size = kwargs.setdefault('size', self.SIZE)
+
+   def linker(self, assembly):
+      write(assembly.instructions, self.get_storage(assembly), self.get_data(assembly))
+
+   def get_storage(self, assembly):
+      return self.storage
+
+   def get_data(self, assembly):
+      return self.data
+
+   def get_define(self):
+      return 'dd     0x%08X' % self.get_identifier()
+
+   def get_identifier(self):
+      if not getattr(self, '_identifier', None):
+         self._identifier = self._generate_identifier()
+
+      return self._identifier
+
+   def find_all_identifiers(self, assembly):
+      ident_data = list()
+      ident = self.get_identifier()
+
+      for i in xrange(self.size):
+         ident_data.append(chr(ident & 0xFF))
+         ident >>= 8
+
+      ident = ''.join(ident_data)
+      data = assembly.instructions[:]
+      indeces = list()
+      index = 0
+
+      while ident in data:
+         index = data.index(ident)
+         indeces.append(indeces[-1]+index if len(indeces) else index)
+         data = data[index + len(ident):]
+
+      return indeces
+
+   def _generate_identifier(self):
+      global LINK_IDENTIFIERS
+
+      shifter = self.size-1
+      identifier = random.randint(0x80 << shifter*8, 0xFF << shifter*8)
+
+      while identifier in LINK_IDENTIFIERS:
+         identifier = random.randint(0x80 << shifter*8, 0xFF << shifter*8)
+
+      LINK_IDENTIFIERS.add(identifier)
+      self._identifier = identifier
+      return self._identifier
+
+class DirectAddressLink(Link):
+   def __init__(self, **kwargs):
+      self.address = kwargs['address']
+      Link.__init__(self, **kwargs)
+      
+   def linker(self, assembly):
+      # TODO this should be handled outside this class to more efficiently make use of it
+      identifiers = self.find_all_identifiers(assembly)
+
+      for identifier in identifiers:
+         self.storage = identifier
+         Link.linker(self, assembly)
+
+   def get_define(self):
+      return '0x%08X' % self.get_identifier()
+
+   def get_data(self, assembly):
+      return pack_dword(self.address)
+
+class IndirectAddressLink(DirectAddressLink):
+   def __init__(self, **kwargs):
+      DirectAddressLink.__init__(self, **kwargs)
+      self.offset_from_storage = kwargs.setdefault('offset_from_storage', 4)
+
+   def get_data(self, assembly):
+      return pack_dword(calculate_delta(self.address,self.get_storage(assembly)+self.offset_from_storage))
+
+# the assembly objects are a different beast entirely from the rest of this project
+# (though in a wonderfully awesome way). I need to establish some common variables to
+# be passed around between all the different classes:
+#
+#     * address:  a number of some kind. it's intended to be a pointer into some memory
+#                 location.
+#     * argc:     the number of arguments to be pushed onto the stack.
+#
+class Assembly:
+   CODE_IDENT = '\x08\xEEPEELCODE\xEE\x0D'
+   DATA_IDENT = '\x08\xEEPEELDATA\xEE\x0D'
+
+   DEFINES = [
+      ('PASM_CODE_IDENT',     "db 0x8,0xEE,'PEELCODE',0xEE,0x0D"),
+      ('PASM_DATA_IDENT',     "db 0x8,0xEE,'PEELDATA',0xEE,0x0D"),
+      ('PASM_ARG_REGISTER',   'ebp'),
+      ('PASM_DATA_REGISTER',  'edx'),
+      ('PASM_IDENT_SIZE',     '12'),
+      ('PASM_OFFSET(o)',      '(o-PASM_DATA_SECTION)'),
+      ('PASM_DATA(n)',        'PASM_DATA_REGISTER+PASM_OFFSET(n)'),
+      ('PASM_ARG(o)',         'PASM_ARG_REGISTER+(o*4+(2*4))'),
+      ('PASM_RETVAL',         'PASM_ARG(-3)'),
+      ('PASM_PUSHAD_ARG(o)',  'PASM_ARG_REGISTER+(o*4+(9*4))'),
+      ('PASM_PUSHAD_RETVAL',  'PASM_ARG(8)'),
+      ('PASM_PUSHAD_EAX',     'PASM_ARG(7)'),
+      ('PASM_PUSHAD_ECX',     'PASM_ARG(6)'),
+      ('PASM_PUSHAD_EDX',     'PASM_ARG(5)'),
+      ('PASM_PUSHAD_EBX',     'PASM_ARG(4)'),
+      ('PASM_PUSHAD_ESP',     'PASM_ARG(3)'),
+      ('PASM_PUSHAD_EBP',     'PASM_ARG(2)'),
+      ('PASM_PUSHAD_ESI',     'PASM_ARG(1)'),
+      ('PASM_PUSHAD_EDI',     'PASM_ARG(0)'),
+      ('SIZEOF_CONTEXT',      '%d' % sizeof(CONTEXT)),
+   ]
+
+   MACROS = [
+      ('PASM_PUSHLOOP', '2', '''
+         mov   ecx,%1
+         dec   ecx
+         lea   eax,dword [%2]
+         lea   eax,dword [eax+ecx*4]
+
+%%pushloop:
+         js    %%endloop 
+         push  dword [eax]
+         sub   eax,4
+         dec   ecx
+         jmp   %%pushloop
+%%endloop:
+      '''),
+
+      ('PASM_FUNCTION', '0', '''
+%%top:   push     PASM_ARG_REGISTER
+         mov      PASM_ARG_REGISTER,esp
+         push     PASM_DATA_REGISTER
+         call     %%next
+%%next:  pop      PASM_DATA_REGISTER
+         sub      PASM_DATA_REGISTER,%%next-%%top
+         add      PASM_DATA_REGISTER,PASM_DATA_SECTION-PASM_IDENT_SIZE
+      '''),
+
+      ('PASM_PUSHAD_FUNCTION', '0', '''
+%%top:   pushad
+         mov      PASM_ARG_REGISTER,esp
+         call     %%next
+%%next:  pop      PASM_DATA_REGISTER
+         sub      PASM_DATA_REGISTER,%%next-%%top
+         add      PASM_DATA_REGISTER,PASM_DATA_SECTION-PASM_IDENT_SIZE
+      '''),
+
+      ('PASM_RET', '1', '''
+         pop      PASM_DATA_REGISTER
+         pop      PASM_ARG_REGISTER
+         ret      %1*4
+      '''),
+
+      ('PASM_PUSHAD_RET', '1', '''
+         popad
+         ret      %1*4
+      '''),
+   ]
+
+   DATA = list()
+   LINKS = dict()
+   ASSEMBLY = None
+   ASSEMBLY_FILE = None
+
+   def __init__(self, **kwargs):
+      self.defines = kwargs.setdefault('defines', self.DEFINES[:])
+      self.macros = kwargs.setdefault('macros', self.MACROS[:])
+      self.data = kwargs.setdefault('data', self.DATA[:])
+      self.assembly = kwargs.setdefault('assembly', self.ASSEMBLY)
+      self.assembly_file = kwargs.setdefault('assembly_file', self.ASSEMBLY_FILE)
+      self.links = kwargs.setdefault('links', dict(self.LINKS.items()[:]))
+
+      if kwargs.has_key('instructions'):
+         self.instructions = kwargs['instructions'][:]
+
+   def add_define(self, name, value):
+      self.defines.append((name, value))
+
+   def add_macro(self, name, arguments, instructions):
+      self.macros.append((name, arguments, instructions))
+
+   def add_data(self, label, data):
+      self.data.append((label, data))
+
+   def add_link(self, name, link):
+      self.links[name] = link
+
+   def get_instructions(self):
+      if not getattr(self, 'instructions', None):
+         self.pre_build()
+         self.instructions = executable_buffer(self.build_instructions())
+         self.post_build()
+
+         self.pre_link()
+         self.link()
+         self.post_link()
+
+      return self.instructions
+
+   def pre_build(self):
+      for linkname in self.links.keys():
+         self.add_define(linkname,self.links[linkname].get_define())
+
+   def post_build(self):
+      pass
+
+   def build_instructions(self):
+      final_assembly = ''';---------------------------------;
+; PEEL NASM data
+; defines
+%s
+
+; macros
+%s
+      
+      PASM_CODE_IDENT
+      ; assembly content
+      %s
+
+      PASM_DATA_IDENT
+PASM_DATA_SECTION:
+      %s
+;---------------------------------;''' % (self.compile_defines(), self.compile_macros(), self.get_assembly(), self.compile_data())
+
+      return assemble_code(final_assembly)
+
+   def pre_link(self):
+      pass
+
+   def post_link(self):
+      pass
+
+   def link(self):
+      for linkname in self.links.keys():
+         self.links[linkname].linker(self)
+
+   def get_assembly(self):
+      if self.assembly:
+         return self.assembly
+      elif self.assembly_file:
+         fp = open(self.assembly_file)
+         self.assembly = fp.read()
+         fp.close()
+      else:
+         raise AssemblyError('class has no assembly code')
+
+      return self.assembly
+
+   def compile_defines(self):
+      ret = list()
+      for define in self.get_defines(): ret.append('%%define\t%s\t%s' % define)
+      return '\n'.join(ret)
+
+   def compile_macros(self):
+      ret = list()
+      for macro in self.get_macros(): ret.append('%%macro\t%s\t%s\n%s\n%%endmacro' % macro)
+      return '\n'.join(ret)
+
+   def compile_data(self):
+      ret = list()
+      for data in self.get_data(): ret.append('%s: %s' % data)
+      return '\n'.join(ret)
+
+   def get_defines(self):
+      return self.defines
+
+   def get_macros(self):
+      return self.macros
+
+   def get_data(self):
+      return self.data
+
+   def get_offset_to_code(self):
+      instructions_string = self.get_instructions().raw
+
+      if not self.CODE_IDENT in instructions_string:
+         if is_spicy():
+            DBG3('code ident: %s', ' '.join(map(lambda x: '%02X' % x, map(ord,self.CODE_IDENT))))
+            DBG3('instructions: %s', ' '.join(map(lambda x: '%02X' % x, map(ord,self.get_instructions()))))
+
+         raise AssemblyError('magic value for data not found')
+
+      return instructions_string.index(self.CODE_IDENT)+len(self.CODE_IDENT)
+
+   def get_offset_to_data(self):
+      instructions_string = self.get_instructions().raw
+
+      if not self.DATA_IDENT in instructions_string:
+         if is_spicy():
+            DBG3('data ident: %s', ' '.join(map(lambda x: '%02X' % x, map(ord,self.DATA_IDENT))))
+            DBG3('instructions: %s', ' '.join(map(lambda x: '%02X' % x, map(ord,self.get_instructions()))))
+
+         raise AssemblyError('magic value for data not found')
+
+      return instructions_string.index(self.DATA_IDENT)+len(self.DATA_IDENT)
+
+   def get_address_of_code(self):
+      return ctypes.addressof(self.get_instructions())+self.get_offset_to_code()
+
+   def get_address_of_data(self):
+      return ctypes.addressof(self.get_instructions())+self.get_offset_to_data()
+
+class AssemblyList(Assembly):
+   LIST_LINKS = list()
+
+   def __init__(self, **kwargs):
+      self.parent = None
+      self.child = None
+
+      list_links = kwargs.setdefault('list_links', self.LIST_LINKS[:])
+
+      if len(list_links):
+         list_link = list_links.pop(0)
+         self.child = list_link(**kwargs)
+         self.child.parent = self
+
+      Assembly.__init__(self, **kwargs)
+
+   def get_instructions(self):
+      if self.child:
+         instructions = self.child.get_instructions()
+      else:
+         instructions = Assembly.get_instructions(self)
+
+      return instructions
+
+   def map_parent_first(self, function):
+      ret = list() 
+
+      child = self
+
+      while child:
+         ret.append(function(child))
+         child = child.child
+
+      return ret
+
+   def map_child_first(self, function):
+      ret = list()
+
+      child = self
+      
+      while child.child:
+         child = child.child
+
+      while child:
+         ret.append(function(child))
+         child = child.parent
+
+      return ret
+
+   @classmethod
+   def static(cls, *args):
+      class StaticList(cls):
+         LIST_LINKS = cls.LIST_LINKS+list(args)
+
+      return StaticList
+
+class AddressChainedAssemblyList(AssemblyList):
+   def post_build(self):
+      DBG3('hit AddressChainedAssemblyList::post_build')
+
+      if self.parent:
+         DBG3('parent.address = 0x%08X' % self.get_address_of_code())
+         self.parent.address = self.get_address_of_code()
+
+      AssemblyList.post_build(self)
+
+class ExceptionHandlerCode(Assembly):
+   DEFINES = Assembly.DEFINES[:] + [
+      ('HANDLER_STACK(n)',          'PASM_ARG(n)'),
+      ('HANDLER_DATA(v)',           'PASM_DATA(v)'), 
+
+      ('STRUCT(r,o)',               'r+o'),
+
+      ('EXCEPTION_POINTERS',        'HANDLER_STACK(0)'),
+      ('EXCEPTION_RECORD(r)',       'STRUCT(r,0x0)'),
+         ('RECORD_FLAGS(r)',           'STRUCT(r,0x4)'),
+      ('EXCEPTION_CONTEXT(r)',      'STRUCT(r,0x4)'),
+         ('CONTEXT_ESP(r)',            'STRUCT(r,0xC4)'),
+         ('CONTEXT_EIP(r)',            'STRUCT(r,0xB8)'),
+         ('CONTEXT_EBP(r)',            'STRUCT(r,0xB4)'),
+         ('CONTEXT_EAX(r)',            'STRUCT(r,0xB0)'),
+         ('CONTEXT_ECX(r)',            'STRUCT(r,0xAC)'),
+         ('CONTEXT_EDX(r)',            'STRUCT(r,0xA8)'),
+         ('CONTEXT_EBX(r)',            'STRUCT(r,0xA4)'),
+         ('CONTEXT_ESI(r)',            'STRUCT(r,0xA0)'),
+         ('CONTEXT_EDI(r)',            'STRUCT(r,0x9C)'),
+
+      ('HANDLER_EAX',              'PASM_DATA(lastcall_eax)'),
+      ('HANDLER_ECX',              'PASM_DATA(lastcall_ecx)'),
+      ('HANDLER_EBX',              'PASM_DATA(lastcall_ebx)'),
+      ('HANDLER_EDX',              'PASM_DATA(lastcall_edx)'),
+      ('HANDLER_ESI',              'PASM_DATA(lastcall_esi)'),
+      ('HANDLER_EDI',              'PASM_DATA(lastcall_edi)'),
+      ('HANDLER_EBP',              'PASM_DATA(lastcall_ebp)'),
+      ('HANDLER_ESP',              'PASM_DATA(lastcall_esp)'),
+
+      ('HANDLER_STACK_CONTEXT(r)', 'STRUCT(r,0x0)'),
+      ('HANDLER_STACK_EXIT(r)',    'STRUCT(r,0x4)'),
+      ('HANDLER_STACK_EDI(r)',     'STRUCT(r,0x8)'),
+      ('HANDLER_STACK_ESI(r)',     'STRUCT(r,0xC)'),
+      ('HANDLER_STACK_EBP(r)',     'STRUCT(r,0x10)'),
+      ('HANDLER_STACK_ESP(r)',     'STRUCT(r,0x14)'),
+      ('HANDLER_STACK_EBX(r)',     'STRUCT(r,0x18)'),
+      ('HANDLER_STACK_EDX(r)',     'STRUCT(r,0x1C)'),
+      ('HANDLER_STACK_ECX(r)',     'STRUCT(r,0x20)'),
+   ]
+
+   ASSEMBLY = '''
+PASM_FUNCTION
+      mov      eax,dword [EXCEPTION_POINTERS]
+
+      mov      ecx,dword [EXCEPTION_CONTEXT(eax)]
+      mov      dword [HANDLER_DATA(context_pointer)],ecx
+      test     ecx,ecx
+      jz       handler_continue_search
+
+      mov      eax,dword [EXCEPTION_RECORD(eax)]
+      test     eax,eax
+      jz       handler_continue_search
+
+      mov      ecx,dword [RECORD_FLAGS(eax)]
+      test     ecx,ecx
+      jnz      handler_cant_continue 
+
+      push     esi
+      mov      esi,dword [HANDLER_DATA(context_pointer)]
+      push     edi
+      lea      edi,dword [HANDLER_DATA(context_data)]
+      mov      ecx,SIZEOF_CONTEXT
+      repne    movsb
+      pop      edi
+      pop      esi
+
+handler_continue_search:
+      xor      eax,eax                               ; EXCEPTION_CONTINUE_SEARCH
+
+handler_quit:
+      PASM_RET 1
+
+handler_cant_continue:
+      ; transfer control back to right after ctypes originally called our code
+      push     esi
+      lea      esi,dword [HANDLER_DATA(lastcall_edi)]
+      push     edi
+      mov      edi,dword [HANDLER_DATA(context_pointer)]
+
+      ; set eax to 0
+      mov      dword [CONTEXT_EAX(edi)],0
+
+      ; set the registers to what they were before the call in the context structure
+      mov      eax,dword [HANDLER_STACK_ESP(esi)]
+      mov      dword [CONTEXT_ESP(edi)],eax
+      mov      eax,dword [HANDLER_STACK_EBP(esi)]
+      mov      dword [CONTEXT_EBP(edi)],eax
+      mov      eax,dword [HANDLER_STACK_ESI(esi)]
+      mov      dword [CONTEXT_ESI(edi)],eax
+      mov      eax,dword [HANDLER_STACK_EDI(esi)]
+      mov      dword [CONTEXT_EDI(edi)],eax
+      mov      eax,dword [HANDLER_STACK_EBX(esi)]
+      mov      dword [CONTEXT_EBX(edi)],eax
+      mov      eax,dword [HANDLER_STACK_ECX(esi)]
+      mov      dword [CONTEXT_ECX(edi)],eax
+      mov      eax,dword [HANDLER_STACK_EDX(esi)]
+      mov      dword [CONTEXT_EDX(edi)],eax
+
+      ; set the original exit as the context's eip
+      mov      eax,dword [HANDLER_STACK_EXIT(esi)]
+      mov      dword [CONTEXT_EIP(edi)],eax
+
+      ; because of the return value
+      add      dword [CONTEXT_ESP(ecx)],4
+
+      xor      eax,eax
+      dec      eax                                 ;  EXCEPTION_CONTINUE_EXECUTION
+
+      jmp      handler_quit
+   '''
+
+   DATA = [
+      ('context_pointer',     'dd 0'),
+      ('function_exit',       'dd 0'),
+      ('lastcall_edi',        'dd 0'),
+      ('lastcall_esi',        'dd 0'),
+      ('lastcall_ebp',        'dd 0'),
+      ('lastcall_esp',        'dd 0'),
+      ('lastcall_ebx',        'dd 0'),
+      ('lastcall_edx',        'dd 0'),
+      ('lastcall_ecx',        'dd 0'),
+      ('lastcall_eax',        'dd 0'),
+      ('context_data',        'resb SIZEOF_CONTEXT'),
+   ]
+
+   EXCEPTION_HANDLER = None
+
+   def __init__(self, **kwargs):
+      self.exception_handler = kwargs.setdefault('exception_handler', self.EXCEPTION_HANDLER)
+      Assembly.__init__(self, **kwargs)
+
+   def handle_stolen_exception(self):
+      target = self.get_offset_to_data()
+      data = self.get_instructions()[target:]
+
+      DBG4('target=0x%08X data=%s', target, ' '.join(map(lambda x: '%02X' % x, map(ord, data))))
+      context_record = unpack_dword(data[0:4])
+
+      if not context_record:
+         return
+
+      context_record = self.get_address_of_data()+0x28
+      context_data = ctypes.string_at(context_record, sizeof(CONTEXT))
+      DBG4('context_data=%s', ' '.join(map(lambda x: '%02X' % x, map(ord, context_data))))
+
+      context_object = CONTEXT(data=context_data)
+
+      if not self.exception_handler or self.exception_handler(context_object) == 1:
+         raise ExceptionError(context_object)
+
+class ExceptionWrapperCode(AddressChainedAssemblyList):
+   DEFINES = AddressChainedAssemblyList.DEFINES[:] + ExceptionHandlerCode.DEFINES[:] + [
+      ('WRAPPER_STACK(n)',          'PASM_ARG(n)'),
+      ('WRAPPER_DATA(v)',           'PASM_DATA(v)'), 
+   ]
+
+   ASSEMBLY = '''
+PASM_PUSHAD_FUNCTION
+      ; store the current stack state at the time of the call, accounting for arguments
+      mov      eax,dword [WRAPPER_DATA(handler_stack_state)]
+      mov      ecx,dword [PASM_PUSHAD_RETVAL]
+      mov      dword [HANDLER_STACK_EXIT(eax)],ecx
+
+      lea      esi,dword [PASM_PUSHAD_EDI]
+      lea      edi,dword [HANDLER_STACK_EDI(eax)]
+      lea      ecx,dword [PASM_PUSHAD_RETVAL]
+      sub      ecx,esi
+      repnz    movsb
+
+%ifdef WRAPPER_ARGS
+      PASM_PUSHLOOP WRAPPER_ARGS,WRAPPER_STACK(0)
+%endif
+
+      lea      eax,dword [WRAPPER_DATA(return_wrapper)]
+      push     eax
+      mov      eax,OriginalAddress           ; the underlying function we're wrapping
+      jmp      eax
+   '''
+
+   DATA = [
+      ('handler_stack_state',    'dd   RemoteStackState'),
+      ('return_wrapper', '''
+
+      ; if we made it here, the function executed successfully.
+      push     eax
+      push     ecx
+
+      mov      ecx,dword [WRAPPER_DATA(handler_stack_state)]
+      xor      eax,eax
+      mov      dword [HANDLER_STACK_CONTEXT(ecx)],eax
+
+      pop      ecx
+      pop      eax
+      popad
+
+%ifdef WRAPPER_ARGS
+      ret      WRAPPER_ARGS*4
+%else
+      ret
+%endif
+      '''),
+   ]
+
+   HANDLER_CODE = ExceptionHandlerCode
+
+   def __init__(self, **kwargs):
+      self.handler_code = kwargs.setdefault('handler_code', self.HANDLER_CODE)
+
+      AddressChainedAssemblyList.__init__(self, **kwargs)
+
+      self.address = kwargs['address']
+      self.argc = kwargs['argc']
+
+      DBG3('ExceptionWrapperCode kwargs=%s', repr(kwargs))
+
+      if self.handler_code:
+         self.handler_code = self.handler_code(**kwargs)
+
+   def pre_build(self):
+      if getattr(self, 'argc', 0):
+         self.add_define('WRAPPER_ARGS', '%d' % self.argc)
+
+      self.add_link('OriginalAddress', DirectAddressLink(address=self.address))
+      self.add_link('RemoteStackState', DirectAddressLink(address=self.handler_code.get_address_of_data()))
+
+      AddressChainedAssemblyList.pre_build(self) 
+
+class UsercallCode(AddressChainedAssemblyList):
+   DEFINES = AddressChainedAssemblyList.DEFINES[:] + [
+      ('USERCALL_MOV_ARG(r,o)',        'mov  r,dword [ebp+((o+2)*4)]'),
+      ('USERCALL_PUSH_ARG(r,o)',       'push dword [ebp+((o+2)*4)]'),   
+      ('USERCALL_MOV_RET_REG(r)',      'mov  r,eax'),
+      ('USERCALL_REALIGN_STACK(c)',    'add  esp,c*4'),
+      ('USERCALL_RET_STACK(c)',        'ret  c*4'),
+      ('USERCALL_RET',                 'ret'),
+   ]
+
+   ASSEMBLY = '''
+      push     ebp
+      mov      ebp,esp
+      USERCALL_MOV_INSTRUCTIONS
+      USERCALL_PUSH_INSTRUCTIONS
+      call     TargetAddress
+      USERCALL_RETURN_REGISTER
+      USERCALL_FIX_STACK
+      pop      ebp
+      USERCALL_RETURN
+   '''
+
+   REALIGN_STACK = 0
+
+   def __init__(self, **kwargs):
+      self.target_registers = kwargs.setdefault('target_registers', self.TARGET_REGISTERS[:])
+      self.return_register = kwargs.setdefault('return_register', self.RETURN_REGISTER)
+      self.realign_stack = kwargs.setdefault('realign_stack', self.REALIGN_STACK)
+
+      AddressChainedAssemblyList.__init__(self, **kwargs)
+
+   def pre_build(self):
+      argc = len(self.argtypes)
+      reg_args = len(self.target_registers)
+      stack_args = 0
+
+      if not reg_args == argc:
+         stack_args = argc - reg_args
+
+      movs = list()
+      pushes = list()
+      return_register = ''
+      stack_fix = ''
+      ret = 'USERCALL_RET'
+      i = 0
+
+      while i < reg_args:
+         movs.append('USERCALL_MOV_ARG(%s,%d)' % (self.target_registers[i], i))
+         i += 1
+
+      while i < argc:
+         pushes.append('USERCALL_PUSH_ARG(%d)' % i)
+
+      if not self.return_register == 'eax':
+         return_register = 'USERCALL_MOV_RET_REG(%s)' % self.return_register
+
+      if stack_args:
+         if self.realign_stack:
+            stack_fix = 'USERCALL_REALIGN_STACK(%d)' % stack_args
+         else:
+            ret = 'USERCALL_RET_STACK(%d)' % stack_args
+
+      self.add_define('USERCALL_MOV_INSTRUCTIONS',    '\n\t'.join(movs))
+      self.add_define('USERCALL_PUSH_INSTRUCTIONS',   '\n\t'.join(pushes))
+      self.add_define('USERCALL_RETURN_REGISTER',     self.return_register)
+      self.add_define('USERCALL_FIX_STACK',           stack_fix)
+      self.add_define('USERCALL_RETURN',              ret)
+
+      self.links['TargetAddress'] = IndirectAddressLink(address=self.address)
+
+      AddressChainedAssemblyList.pre_build(self)
+
 class FunctionPrototype:
+   ADDRESS = None
    RETTYPE = ctypes.c_ulong
    ARGTYPES = list()
-   ADDRESS = None
+   ENTRYPOINT = 0
 
-   def __init__(self, address):
-      self.address = address
+   def __init__(self, **kwargs):
+      self.address = kwargs.setdefault('address', self.ADDRESS)
+      self.rettype = kwargs.setdefault('rettype', self.RETTYPE)
+      self.argtypes = kwargs.setdefault('argtypes', self.ARGTYPES)
+      self.entrypoint = kwargs.setdefault('entrypoint', self.ENTRYPOINT)
 
    def has_function(self):
       return getattr(self, 'function', None)
@@ -3420,189 +4320,178 @@ class FunctionPrototype:
       else:
          return self.parse_function()
 
+   def get_prototype(self):
+      return ctypes.WINFUNCTYPE(self.rettype, *self.argtypes)
+
    def parse_function(self):
-      raise FunctionError("FunctionPrototype::parse_function undefined")
+      prototype = self.get_prototype()
+      self.function = prototype(self.get_prototype_target())
+
+      if is_spicy():
+         DBG3('function call: %s', repr(self))
+         DBG3('prototype target: 0x%08X', self.get_prototype_target())
+
+      return self.function
+
+   def get_prototype_target(self):
+      DBG3('FunctionPrototype::get_prototype_target')
+
+      if not getattr(self, 'address', None):
+         raise FunctionError("class has no address data")
+
+      return self.address
 
    def __call__(self, *args):
+      if is_spicy():
+         DBG3('function call: %s', repr(self))
+
       return self.get_function()(*args)
 
    @classmethod
-   def call(cls, *args):
-      if not getattr(cls, 'ADDRESS', None):
-         raise FunctionError("FunctionPrototype must be declared with an ADDRESS class global if being called via call classmethod")
+   def call(cls, *args, **kwargs):
+      DBG3('hit FunctionPrototype::call')
 
-      return cls(cls.ADDRESS)(*args)
+      if not kwargs.has_key('address'):
+         kwargs['address'] = getattr(cls, 'ADDRESS', None)
 
-class CDECLPrototype(FunctionPrototype):
-   def parse_function(self):
-      if not self.address.valid_rva():
-         raise FunctionError("prototype address is an invalid RVA")
+      return cls(**kwargs)(*args)
 
-      prototype = ctypes.CFUNCTYPE(self.RETTYPE, *self.ARGTYPES)
-      self.function = prototype(self.address.rva() + self.address.image.virtual_base())
-      return self.function
+PythonSTDCALLPrototype = FunctionPrototype
 
-class STDCALLPrototype(FunctionPrototype):
-   def parse_function(self):
-      if not self.address.valid_rva():
-         raise FunctionError("prototype address is an invalid RVA")
+class PythonCDECLPrototype(FunctionPrototype):
+   def get_prototype(self):
+      return ctypes.CDECLTYPE(self.rettype, *self.argtypes)
 
-      prototype = ctypes.WINFUNCTYPE(self.RETTYPE, *self.ARGTYPES)
-      self.function = prototype(self.address.rva() + self.address.image.virtual_base())
-      return self.function
+class ExecutableCode:
+   CODE = None
+   PROTOTYPE = PythonSTDCALLPrototype
+   ENTRYPOINT = 0
 
-class AssemblyPrototype(FunctionPrototype):
-   ASM = None
+   def __init__(self, **kwargs):
+      self.code = kwargs.setdefault('code', self.CODE)
+      self.prototype = kwargs.setdefault('prototype', self.PROTOTYPE)
+      self.entrypoint = kwargs.setdefault('entrypoint', self.ENTRYPOINT)
 
-   def parse_function(self):
-      if not VirtualProtect:
-         raise FunctionError("host system isn't Windows or doesn't have Wine")
+      if not self.code:
+         raise AssemblyError('no code to execute')
 
-      self.pre_build()
-      self.instructions = ctypes.create_string_buffer(self.build_instructions())
-      self.post_build()
+      if not self.prototype:
+         raise AssemblyError('no prototype to apply to executable code')
 
-      VirtualProtect(self.instructions, len(self.instructions), 0x40, ctypes.byref(ctypes.c_int()))
-      prototype = ctypes.WINFUNCTYPE(self.RETTYPE, *self.ARGTYPES)
-      self.function = prototype(ctypes.addressof(self.instructions))
-      return self.function
+      self.code = self.code(**kwargs)
+      self.prototype = self.prototype(**kwargs)
 
-   def build_instructions(self):
-      if not getattr(self, 'ASM', None):
-         raise FunctionError("AssemblyPrototype::build_instructions undefined")
+   def get_entrypoint(self):
+      return self.entrypoint
+
+   def get_prototype(self):
+      if not self.prototype:
+         raise AssemblyError('no prototype to apply to executable code')
+
+      return self.prototype.get_prototype()
+
+   def get_function(self):
+      if getattr(self, 'function', None):
+         return self.function
       else:
-         raise FunctionError("use of the ASM class global not yet implemented")
-      
-   def pre_build(self):
-      pass
+         return self.parse_function()
 
-   def post_build(self):
-      pass
+   def parse_function(self):
+      prototype = self.get_prototype()
+      self.function = prototype(self.get_prototype_target())
 
-   @classmethod
-   def call(cls, *args):
-      return cls(cls.ADDRESS)(*args)
+      if is_spicy():
+         DBG3('function call: %s', repr(self))
+         DBG3('prototype target: 0x%08X', self.get_prototype_target())
+         DBG3('address of code: 0x%08X', self.code.get_address_of_code())
 
-class MedianPrototype(AssemblyPrototype):
-   def pre_call(self):
-      return str()
+      return self.function
 
-   def post_call(self):
-      return str()
+   def get_prototype_target(self):
+      DBG3('ExecutableCode::get_prototype_target')
+      return self.code.get_address_of_code()+self.get_entrypoint()
 
-   def build_instructions(self):
-      pre_call = self.pre_call()
-      call = '\xe8\x00\x00\x00\x00'
-      post_call = self.post_call()
+   def __call__(self, *args):
+      if is_spicy():
+         DBG3('function call: %s', repr(self))
 
-      self.call_offset = len(pre_call)+len(call)
-
-      return pre_call+call+post_call
-
-   def post_build(self):
-      function_address = self.address.rva()
-      image_base = self.address.image.virtual_base()
-      median_base = ctypes.addressof(self.instructions)
-      new_address = self.address.image.calculate_delta(function_address + image_base, median_base + self.call_offset)
-
-      self.instructions[self.call_offset-4:self.call_offset] = struct.pack('<L', new_address)
+      return self.get_function()(*args)
 
    @classmethod
-   def call(cls, *args):
-      return FunctionPrototype.call(cls, *args)
+   def call(cls, *args, **kwargs):
+      DBG3('hit ExecutableAssembly::call')
+      return cls(**kwargs)(*args)
 
-class UsercallPrototype(MedianPrototype):
-   MOVEBP_INSTRUCTIONS = {'eax': '\x8b\x45', 'ebx': '\x8b\x5d', 'ecx': '\x8b\x4d',
-                          'edx': '\x8b\x55', 'esi': '\x8b\x75', 'edi': '\x8b\x7d'}
-   MOVEAX_INSTRUCTIONS = {'ebx': '\x89\xd8', 'ecx': '\x89\xc8', 'edx': '\x89\xd0', 
-                          'esi': '\x89\xf0', 'edi': '\x89\xf8'}
-   TARGET_REGISTERS = None
+class ExceptedPrototype(FunctionPrototype, ExecutableCode):
+   CODE = AddressChainedAssemblyList.static(ExceptionWrapperCode)
+
+   def __init__(self, **kwargs):
+      FunctionPrototype.__init__(self, **kwargs)
+
+      self.argc = kwargs.setdefault('argc', len(kwargs.setdefault('argtypes', FunctionPrototype.ARGTYPES)))
+
+      ExecutableCode.__init__(self, **kwargs)
+
+   def get_prototype_target(self):
+      return ExecutableCode.get_prototype_target(self)
+
+   def get_function(self):
+      if not getattr(self, 'function', None):
+         self.function = self.parse_function()
+
+      return self._exception_handler
+
+   def _exception_handler(self, *args):
+      DBG3('hit ExceptedPrototype::_exception_handler')
+      AddVectoredExceptionHandler(1, self.code.child.handler_code.get_address_of_code())
+
+      child = self.code
+
+      while child:
+         if not getattr(child, 'instructions', None):
+            DBG3('%s has no instructions', repr(child))
+         else:
+            DBG3('%s instruction length: %d', repr(child), len(child.get_instructions()))
+
+         child = child.child
+
+      DBG3('function target=0x%08X', self.get_prototype_target())
+      DBG3('handler target=0x%08X', self.code.child.handler_code.get_address_of_code())
+
+      try:
+         DBG3('executing')
+         retval = self.function(*args)
+         DBG3('success; returning')
+         return retval
+      except WindowsError: # python got it first
+         DBG3('python got the error before us')
+         pass
+      finally:
+         DBG3('removing exception handler')
+         RemoveVectoredExceptionHandler(self.get_prototype_target())
+
+      DBG3('attempting to raise custom exception...')
+      self.code.child.handler_code.handle_stolen_exception()
+      DBG3('no exception to raise')
+      return retval
+
+STDCALLPrototype = ExceptedPrototype
+
+class CDECLPrototype(ExceptedPrototype):
+   FUNC_PROTOTYPE = PythonCDECLPrototype
+
+class UsercallPrototype(ExceptedPrototype):
+   CODE = ExceptedPrototype.CODE.static(UsercallCode)
+   TARGET_REGISTERS = list()
    RETURN_REGISTER = 'eax'
+   REALIGN_STACK = 0
 
-   def __init__(self, address, target_registers, return_register='eax'):
-      self.target_registers = map(str.lower, target_registers)
-      self.return_register = return_register.lower()
+   def __init__(self, **kwargs):
+      self.target_registers = kwargs.setdefault('target_registers', self.TARGET_REGISTERS[:])
+      self.return_register = kwargs.setdefault('return_register', self.RETURN_REGISTER)
+      self.realign_stack = kwargs.setdefault('realign_stack', self.REALIGN_STACK)
 
-      MedianPrototype.__init__(self, address)
-
-   def pre_call(self):
-      if not self.address.valid_rva():
-         raise FunctionError("prototype address is an invalid RVA")
-
-      if not UsercallPrototype.MOVEBP_INSTRUCTIONS.has_key(self.return_register):
-         raise FunctionError("invalid return register: %s" % self.return_register)
-
-      for target in self.target_registers:
-         if not UsercallPrototype.MOVEBP_INSTRUCTIONS.has_key(target):
-            raise FunctionError("invalid target register: %s" % target)
-
-      # example implementation: msfastcall
-      # the following lines will generate:
-      #
-      # push   ebp
-      # mov    ebp,esp
-      # mov    ecx,[ebp+8]       ; if has first argument
-      # mov    edx,[ebp+0xC]     ; if has second argument
-      # push   [ebp+0x10+i]      ; for every other argument
-      # call   target
-      # sub    esp,4*i           ; for every pushed argument
-      # pop    ebp
-      # retn   (i-2)*4
-
-      argc = len(self.ARGTYPES)
-      index = 0x8
-
-      header = "\x55\x89\xe5"      # push ebp / mov    ebp,esp
-
-      registers = self.target_registers[:]
-      stack = str()
-
-      while len(registers) and argc > 0:
-         stack = "%s%s%s" % (stack, UsercallPrototype.MOVEBP_INSTRUCTIONS[registers.pop(0)], struct.pack('<B', index))
-         index += 4
-         argc -= 1
-
-      while argc > 0:
-         stack = "%s\xff\x75%s" % (stack, struct.pack('<B', index)) # push [ebp+offset]
-         index += 4
-         argc -= 1
-
-      return header+stack
-
-   def post_call(self):
-      argc = len(self.ARGTYPES)
-
-      if not self.return_register == 'eax':
-         retval = UsercallPrototype.MOVEAX_INSTRUCTIONS[self.return_register]
-      else:
-         retval = str()
-
-      if argc - len(self.target_registers) > 0:
-         stack_cleanup = "\x83\xec%s" % struct.pack('<B', argc - len(self.target_registers))
-      else:
-         stack_cleanup = str()
-
-      footer = ("\x5d")          # pop    ebp
-
-      if not len(self.ARGTYPES): # and fuck you if so
-         ret = "\xc3"
-      else:
-         ret = "\xc2%s" % struct.pack('<H', len(self.ARGTYPES)*4)
-
-      return retval+stack_cleanup+footer+ret
-
-   @classmethod
-   def call(cls, *args):
-      if not getattr(cls, 'ADDRESS', None):
-         raise FunctionError("FunctionPrototype must be declared with an ADDRESS class global if being called via call classmethod")
-
-      if not getattr(cls, 'TARGET_REGISTERS', None):
-         raise FunctionError("UsercallPrototype must be declared with a TARGET_REGISTERS class global if being called via call classmethod")
-
-      if not getattr(cls, 'RETURN_REGISTER', None):
-         raise FunctionError("UsercallPrototype must be declared with a RETURN_REGISTER class global if being called via call classmethod")
-
-      return cls(cls.ADDRESS, cls.TARGET_REGISTERS, cls.RETURN_REGISTER)(*args)
+      ExceptedPrototype.__init__(self, **kwargs)
 
 class ThiscallPrototype(UsercallPrototype):
    TARGET_REGISTERS = ['ecx']
@@ -3616,35 +4505,34 @@ class BorlandFastcallPrototype(UsercallPrototype):
 class WatcomPrototype(UsercallPrototype):
    TARGET_REGISTERS = ['eax', 'edx', 'ebx', 'ecx']
 
-class WinMainPrototype(STDCALLPrototype):
-   ARGTYPES = [ctypes.wintypes.HINSTANCE, ctypes.wintypes.HINSTANCE, ctypes.wintypes.LPSTR, ctypes.c_ulong]
+if WIN32_COMPATIBLE:
+   class WinMainPrototype(STDCALLPrototype):
+      ARGTYPES = [ctypes.wintypes.HINSTANCE, ctypes.wintypes.HINSTANCE, ctypes.wintypes.LPSTR, ctypes.c_ulong]
 
-   @classmethod
-   def call(cls, *args):
-      if not getattr(cls, 'ADDRESS', None):
-         raise FunctionError("FunctionPrototype must be declared with an ADDRESS class global if being called via call classmethod")
+      @classmethod
+      def call(cls, *args, **kwargs):
+         kwargs.setdefault('address', cls.ADDRESS)
 
-      if len(args) == 0:
-         instance = self.address.image.virtual_base()
-         args = ctypes.windll.GetCommandLineA()
-         return cls(cls.ADDRESS)(instance, 1, args, 1)
-      else:
-         return cls(cls.ADDRESS)(*args)
+         if len(args) == 0:
+            instance = self.address.image.virtual_base()
+            args = ctypes.windll.GetCommandLineA()
+            return cls(**kwargs)(instance, 1, args, 1)
+         else:
+            return cls(**kwargs)(*args)
 
-class GetModuleHandleP(AssemblyPrototype):
-   ASM = '''
+class GetModuleHandleCode(Assembly):
+   ASSEMBLY = '''
       mov      eax,  [fs:0x18]
       mov      eax,  [eax+0x30]
       mov      eax,  [eax+8]
       ret
    '''
 
-   def build_instructions(self):
-      return ('\x64\xa1\x18\x00\x00\x00' '\x8b\x40\x30' '\x8b\x40\x08' '\xc3')
+class GetModuleHandlePrototype(STDCALLPrototype):
+   CODE = STDCALLPrototype.CODE.static(GetModuleHandleCode)
 
-class SetModuleHandle(AssemblyPrototype):
-   ARGTYPES = [ctypes.c_ulong]
-   ASM = '''
+class SetModuleHandleCode(Assembly):
+   ASSEMBLY = '''
       mov      eax,  [fs:0x18]
       mov      eax,  [eax+0x30]
       mov      ecx,  [esp+4]
@@ -3652,8 +4540,9 @@ class SetModuleHandle(AssemblyPrototype):
       ret      4
    '''
 
-   def build_instructions(self):
-      return ('\x64\xa1\x18\x00\x00\x00' '\x8b\x40\x30' '\x8b\x4c\x24\x04' '\x89\x48\x08' '\xc2\x04\x00')
+class SetModuleHandlePrototype(STDCALLPrototype):
+   ARGTYPES = [ctypes.c_ulong]
+   CODE = STDCALLPrototype.CODE.static(SetModuleHandleCode)
 
 class PEImage:
    XP_COMPATABILITY = 1
@@ -3687,6 +4576,10 @@ class PEImage:
 
          if kwargs['make_executable']:
             self.make_executable()
+
+      if kwargs.setdefault('basic_headers', 0):
+         dos_header = IMAGE_DOS_HEADER(address=self.offset(0), set_defaults=1)
+         nt_headers = IMAGE_NT_HEADERS32(address=dos_header.e_lfanew.as_offset(), set_defaults=1)
 
    def __repr__(self):
       headers = self.get_headers()
@@ -4043,6 +4936,10 @@ class PEImage:
       if not GetProcAddress or not LoadLibraryA:
          raise ImageError("host system isn't Windows or doesn't have Wine")
 
+      if not int(self.IMAGE_DATA_DIRECTORY[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress):
+         DBG1('hey! the image has no import directory! what gives?')
+         return
+
       DBG1("mapping imports to virtual image")
       import_directory = self.import_directory()
       import_directory.parse_imports()
@@ -4136,8 +5033,7 @@ class PEImage:
       self._hijacked = 0
 
    def make_executable(self):
-      # FIXME this won't work on 64-bit systems because ctypes is a jerk! I'm
-      # FIXME trying to figure out why...
+      # FIXME this won't work on 64-bit systems if the underlying image is 32-bit
       self.load_imports()
 
       try:
@@ -4145,20 +5041,10 @@ class PEImage:
       except HeaderError:
          DBG1("image has no relocation directory! be careful, functions probably won't work.")
 
-      VirtualProtect(self.buff.virtual_image, self.buff.virtual_length(), 0x40, ctypes.byref(ctypes.c_int()))
+      mark_executable(self.buff.virtual_image, self.buff.virtual_length())
       self.is_executable = 1
 
    def create_function(self, address, function_class):
-      # TODO add the return type as well so that the function that returns will
-      # TODO transparently return the proper ctype value
-      # TODO
-      # TODO also! I'm stupid for not thinking that there could POSSIBLY BE two
-      # TODO different callbacks for __cdecl and __stdcall. herpan de derp!
-      # TODO
-      # TODO also I should do a thing to hopefully make it so that you can do
-      # TODO fastcall stuff too. and thiscall. and fjkalsdfjklasd WHY IS X86
-      # TODO SUCH A CLUSTERFUCK (I love it though)
-
       if not self.is_executable:
          raise ImageError("image has not been made executable")
 
@@ -5358,3 +6244,128 @@ def calculate_delta(left,right,arch=0):
       result &= (0x100000000 << (32 * arch)) - 1
 
    return result
+
+def mark_executable(buff, size):
+   if not VirtualProtect:
+      raise FunctionError("host system isn't Windows or doesn't have Wine")
+
+   VirtualProtect(buff, size, 0x40, ctypes.byref(ctypes.c_int()))
+
+def executable_buffer(str_or_num):
+   if not VirtualProtect:
+      raise FunctionError("host system isn't Windows or doesn't have Wine")
+
+   ret = ctypes.create_string_buffer(str_or_num)
+
+   if isinstance(str_or_num, basestring):
+      size = len(str_or_num)
+   else:
+      size = str_or_num
+
+   mark_executable(ret, size)
+   return ret
+
+def find_bin_in_path(bin_name):
+   paths = os.environ['PATH'].split(';')
+
+   if '.' in bin_name:
+      bin_regex = '^%s$' % bin_name
+   else:
+      bin_regex = '^%s(\\.exe)?$' % bin_name
+
+   if len(paths) == 1: # linux environment, likely
+      paths = os.environ['PATH'].split(':')
+
+      if not len(paths) == 1:
+         bin_regex = '^%s$' % bin_name
+
+   bin_regex = re.compile(bin_regex)
+
+   for execpath in paths:
+      execpath = execpath.rstrip('/').rstrip('\\')
+
+      if ExpandEnvironmentStringsA: 
+         buff = ctypes.create_string_buffer(0x102)
+         ExpandEnvironmentStringsA(execpath, buff, 0x101)
+         execpath = buff.value
+
+      try:
+         files = os.listdir(execpath)
+         files.sort()
+      except:
+         continue
+      
+      for filename in files:
+         if ExpandEnvironmentStringsA:
+            match_obj = bin_regex.match(filename.lower())
+
+            if match_obj:
+               return '%s\\%s' % (execpath, filename)
+         else:
+            match_obj = bin_regex.match(filename)
+
+            if match_obj:
+               return '%s/%s' % (execpath, filename)
+
+   return None
+
+def find_assembler():
+   yasm = find_bin_in_path('yasm')
+
+   if not yasm:
+      yasm = find_bin_in_path('nasm')
+
+   if not yasm:
+      raise AssemblyError("couldn't find assembler in PATH")
+
+   return yasm
+
+def assemble_file(nasm_file):
+   fp = open(nasm_file)
+   data = fp.read()
+   fp.close()
+
+   return assemble_code(data)
+
+def assemble_code(nasm_code):
+   temp_asm = tempfile.NamedTemporaryFile(mode='w+', prefix='peelasm', delete=False)
+   temp_obj = tempfile.NamedTemporaryFile(prefix='peelasmobj', delete=False)
+
+   temp_asm.write(nasm_code)
+   temp_asm.close()
+   temp_obj.close()
+
+   try:
+      assembler = find_assembler()
+
+      proc = subprocess.Popen([assembler, '-f', 'win32', temp_asm.name, '-o', temp_obj.name], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+      stdout, stderr = proc.communicate()
+
+      if stdout:
+         DBG1('assembler stdout:')
+         for chunk in stdout.split('\n'): DBG1('... %s' % chunk)
+
+      if stderr:
+         DBG1('assembler stderr:')
+         for chunk in stderr.split('\n'): DBG1('... %s' % chunk)
+
+      if is_medium():
+         DBG2('the assembly code:')
+         chunks = re.split('\r?\n', nasm_code)
+         
+         for i in xrange(len(chunks)):
+            DBG2('... [%5d] %s', i+1, chunks[i])
+
+      if not proc.returncode == 0:
+         raise AssemblyError('nasm failed to compile')
+
+      obj_file = open(temp_obj.name, 'rb')
+      obj_data = obj_file.read()
+      obj_file.close()
+   finally:
+      os.remove(temp_asm.name)
+      os.remove(temp_obj.name)
+
+   size = struct.unpack('<L', obj_data[0x24:0x28])[0]
+   ptr = struct.unpack('<L', obj_data[0x28:0x2C])[0]
+   return obj_data[ptr:ptr+size]
