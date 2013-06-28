@@ -196,7 +196,7 @@ IMAGE_NT_OPTIONAL_HDR32_MAGIC = 0x10B
 IMAGE_NT_OPTIONAL_HDR64_MAGIC = 0x20B
 IMAGE_ROM_OPTIONAL_HDR_MAGIC  = 0x107
 
-# DataDirectory indecies
+# DataDirectory indices
 IMAGE_DIRECTORY_ENTRY_EXPORT         = 0
 IMAGE_DIRECTORY_ENTRY_IMPORT         = 1
 IMAGE_DIRECTORY_ENTRY_RESOURCE       = 2
@@ -3226,7 +3226,7 @@ class PEBuffer:
    #     * the staging area is flushed
    #
    # the staging area is flushed if:
-   #     * the height of the tree is greater than its flush threshhold
+   #     * the height of the tree is greater than its flush threshold
    #     * an address is manually flushed
    # 
    # because this is essentially a new thing, options should be:
@@ -5615,7 +5615,7 @@ class PEImage:
 
    def is_windows_compatible(self):
       # thanks to Daeken for the idea
-      compatability = 0x1F
+      compatibility = 0x1F
 
       xp_incompat = 0x1E
       vista_incompat = 0x1D
@@ -5639,76 +5639,76 @@ class PEImage:
 
       if not machine in valid_machines:
          DBG1('IMAGE_FILE_HEADER.Machine value is suspicious-- not i386/AMD64/IA64. Assuming incompatible.')
-         compatability = 0
+         compatibility = 0
 
       sections = int(self.IMAGE_FILE_HEADER.NumberOfSections)
 
       if sections == 0:
          DBG1('IMAGE_FILE_HEADER.Sections cannot be zero on Vista/7')
-         compatability &= vista_incompat
-         compatability &= win7_incompat
+         compatibility &= vista_incompat
+         compatibility &= win7_incompat
 
       if sections > 96: 
          DBG1('IMAGE_FILE_HEADER.NumberOfSections incompatible with XP (must be less than or equal to 96)')
-         compatability &= xp_incompat
+         compatibility &= xp_incompat
 
       # TODO TLS directory can circumvent this
       entry = self.IMAGE_OPTIONAL_HEADER.AddressOfEntryPoint.as_rva()
 
       if not entry.valid_va() or int(entry) & 0x80000000 or int(entry) & 0x8000000000000000:
          DBG1('IMAGE_OPTIONAL_HEADER.AddressOfEntryPoint has an invalid value')
-         compatability = 0
+         compatibility = 0
 
       image_base = int(self.IMAGE_OPTIONAL_HEADER.ImageBase)
       image_size = int(self.IMAGE_OPTIONAL_HEADER.SizeOfImage)
 
       if image_base % 0x10000:
          DBG1('IMAGE_OPTIONAL_HEADER.ImageBase must be a multiple of 0x10000')
-         compatability = 0
+         compatibility = 0
 
       elif image_base == 0:
          DBG1('IMAGE_OPTIONAL_HEADER.ImageBase can only be null under XP')
-         compatability &= vista_incompat
-         compatability &= win7_incompat
+         compatibility &= vista_incompat
+         compatibility &= win7_incompat
 
       if (image_base+image_size) & 0x80000000:
          DBG1('IMAGE_OPTIONAL_HEADER.ImageBase plus IMAGE_OPTIONAL_HEADER.ImageSize incompatible with 32-bit windows (must be less than 0x80000000)')
-         compatability &= x86_compat
+         compatibility &= x86_compat
 
       if (image_base+image_size) & 0x8000000000000000:
          DBG1('IMAGE_OPTIONAL_HEADER.ImageBase plus IMAGE_OPTIONAL_HEADER.ImageSize incompatible with 64-bit windows (must be less than 0x8000000000000000)')
-         compatability &= x64_compat
+         compatibility &= x64_compat
 
       sect_align = int(self.IMAGE_OPTIONAL_HEADER.SectionAlignment)
 
       # fuck readability, this algorithm is cool as shit
       if sect_align & (sect_align - 1):
          DBG1('IMAGE_OPTIONAL_HEADER.SectionAlignment not a power of 2')
-         compatability = 0
+         compatibility = 0
 
       file_align = int(self.IMAGE_OPTIONAL_HEADER.FileAlignment)
 
       if file_align & (file_align - 1):
          DBG1('IMAGE_OPTIONAL_HEADER.FileAlignment not a power of 2')
-         compatability = 0
+         compatibility = 0
 
       major_subsystem = int(self.IMAGE_OPTIONAL_HEADER.MajorSubsystemVersion)
 
       if major_subsystem < 3:
          DBG1('IMAGE_OPTIONAL_HEADER.MajorSubsystemVersion must be less than 3')
-         compatability = 0
+         compatibility = 0
 
       minor_subsystem = int(self.IMAGE_OPTIONAL_HEADER.MinorSubsystemVersion)
 
       if major_subsystem == 3 and minor_subsystem < 10:
          DBG1('If IMAGE_OPTIONAL_HEADER.MajorSubsystemVersion is 3, then IMAGE_OPTIONAL_HEADER.MinorSubsystemVersion must be greater than or equal to 10')
-         compatability = 0
+         compatibility = 0
 
       img_size = self.calculate_size_of_image()
 
       if img_size > int(self.IMAGE_OPTIONAL_HEADER.SizeOfImage):
          DBG1('IMAGE_OPTIONAL_HEADER.SizeOfImage is wrong; expecting 0x%08X' % img_size)
-         compatability = 0
+         compatibility = 0
 
       elif img_size < int(self.IMAGE_OPTIONAL_HEADER.SizeOfImage):
          DBG1("though not necessarily incompatible, it's suspicious that the image size is bigger than it should be.")
@@ -5717,7 +5717,7 @@ class PEImage:
 
       if not subsystem in valid_platforms:
          DBG1('IMAGE_OPTIONAL_HEADER.Subsystem is suspicious; expecting native, GUI or CUI.')
-         compatability = 0
+         compatibility = 0
 
       if int(self.IMAGE_FILE_HEADER.NumberOfSections):
          executable = 0
@@ -5732,25 +5732,25 @@ class PEImage:
 
             if vs_align:
                DBG1('Section "%s" is not section aligned' % sect_name)
-               compatability = 0
+               compatibility = 0
 
             fs_align = int(section.PointerToRawData) % file_align
 
             if fs_align:
                DBG1('Section "%s" is not file aligned' % sect_name)
-               compatability = 0
+               compatibility = 0
 
             executable |= int(section.Characteristics) & IMAGE_SCN_MEM_EXECUTE
 
          if not executable:
             DBG1('at least one of the sections must be marked executable to run')
-            compatability = 0
+            compatibility = 0
 
          if executable and not int(self.IMAGE_FILE_HEADER.Characteristics) & IMAGE_FILE_EXECUTABLE_IMAGE:
             DBG1('executable section found in an image not marked for execution')
-            compatability = 0
+            compatibility = 0
 
-      return compatability
+      return compatibility
 
    def is_xp_compatible(self):
       return self.is_windows_compatible() & PEImage.XP_COMPATABILITY
