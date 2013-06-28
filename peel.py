@@ -2311,8 +2311,20 @@ class Section(Struct):
    def read_section(self):
       addr = self.PointerToRawData.as_offset()
 
+      # found some rude-ass malware that has some fucked up section nonsense!
+      # md5: F375365111B4DD5026ACC0E37581DC00
+
+      raw_size = int(self.SizeOfRawData)
+      virtual_size = int(self.VirtualSize)
+
+      if raw_size > virtual_size:
+         DBG2("whoa! you've got some FUCKED UP sections, dude! raw size greater than virtual size?! rude!")
+         section_size = virtual_size
+      else:
+         section_size = raw_size
+
       if addr.valid_rva():
-         return addr.read(int(self.SizeOfRawData))
+         return addr.read(section_size)
 
    def entropy(self):
       start = self.VirtualAddress.as_rva()
