@@ -4865,7 +4865,6 @@ class PEImage:
       while start_address.offset() <= end_address.offset():
          if start_address.unpack_word() == IMAGE_DOS_SIGNATURE:
             DBG1("found MZ header at 0x%x", start_address.offset())
-            new_image = self.parse_image_at_address(start_address)
 
             try:
                new_image = self.parse_image_at_address(start_address)
