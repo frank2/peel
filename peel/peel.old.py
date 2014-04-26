@@ -23,13 +23,10 @@
 # p:::::::p              (redunant like an ATM machine!)
 # ppppppppp
 #
-# Copyright (C) 2011-2013, frank2 <frank2 [!] dc949 [:] org>
+# Copyright (C) 2011-2014, frank2 <frank2 [!] dc949 [:] org>
 #
 # Originally called "pestuff," PEEL is here to help you deal with PE files!
 # Reading, writing-- whatever! It's all good!
-#
-# License pending. Open-source licensing is a clusterfuck. I dunno what I wanna
-# do just yet. :(
 #
 # Thanks to Ero Carrera's pefile for a lot of guidance on how to properly parse
 # PE files without getting bitten in the ass by malware! 
@@ -42,6 +39,19 @@
 # Finally, thanks to the Corkami project for providing an exhaustive PE corpus
 # of extremely odd quirks and other interesting PE file oddities for testing.
 # http://code.google.com/p/corkami/
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 import binascii
 import code

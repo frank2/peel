@@ -1,4 +1,5 @@
-peel
+# PEEL
+## The PE Executable Library
 ====
 
 PEEL is a Python library for being a Windows binary wizard. Literally. You will literally become the Gandalf of PE files.
