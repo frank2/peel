@@ -6379,3 +6379,7 @@ def assemble_code(nasm_code, arch="32"):
       os.remove(temp_asm.name)
       if worked:
          os.remove(temp_obj.name)
+         
+   size = struct.unpack('<L', obj_data[0x24:0x28])[0]
+   ptr = struct.unpack('<L', obj_data[0x28:0x2C])[0]
+   return obj_data[ptr:ptr+size]
