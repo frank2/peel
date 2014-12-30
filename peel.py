@@ -6341,6 +6341,8 @@ def assemble_code(nasm_code):
    temp_asm.close()
    temp_obj.close()
 
+   worked = True
+
    try:
       assembler = find_assembler()
 
@@ -6354,6 +6356,7 @@ def assemble_code(nasm_code):
       if stderr:
          DBG1('assembler stderr:')
          for chunk in stderr.split('\n'): DBG1('... %s' % chunk)
+         worked = False # halt on any error from the assembler
 
       if is_medium():
          DBG2('the assembly code:')
@@ -6370,8 +6373,5 @@ def assemble_code(nasm_code):
       obj_file.close()
    finally:
       os.remove(temp_asm.name)
-      os.remove(temp_obj.name)
-
-   size = struct.unpack('<L', obj_data[0x24:0x28])[0]
-   ptr = struct.unpack('<L', obj_data[0x28:0x2C])[0]
-   return obj_data[ptr:ptr+size]
+      if worked:
+         os.remove(temp_obj.name)
