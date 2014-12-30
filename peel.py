@@ -6333,7 +6333,7 @@ def assemble_file(nasm_file):
 
    return assemble_code(data)
 
-def assemble_code(nasm_code):
+def assemble_code(nasm_code, arch="32"):
    temp_asm = tempfile.NamedTemporaryFile(mode='w+', prefix='peelasm', delete=False)
    temp_obj = tempfile.NamedTemporaryFile(prefix='peelasmobj', delete=False)
 
@@ -6346,7 +6346,11 @@ def assemble_code(nasm_code):
    try:
       assembler = find_assembler()
 
-      proc = subprocess.Popen([assembler, '-f', 'win32', temp_asm.name, '-o', temp_obj.name], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+      if not arch == "64":
+         arch = "32"
+      else:
+         arch = "64"
+      proc = subprocess.Popen([assembler, '-f', 'win' + arch, temp_asm.name, '-o', temp_obj.name], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
       stdout, stderr = proc.communicate()
 
       if stdout:
