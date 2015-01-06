@@ -6333,7 +6333,7 @@ def assemble_file(nasm_file):
 
    return assemble_code(data)
 
-def assemble_code(nasm_code):
+def assemble_code(nasm_code, arch="32"):
    temp_asm = tempfile.NamedTemporaryFile(mode='w+', prefix='peelasm', delete=False)
    temp_obj = tempfile.NamedTemporaryFile(prefix='peelasmobj', delete=False)
 
@@ -6341,10 +6341,16 @@ def assemble_code(nasm_code):
    temp_asm.close()
    temp_obj.close()
 
+   worked = True
+
    try:
       assembler = find_assembler()
 
-      proc = subprocess.Popen([assembler, '-f', 'win32', temp_asm.name, '-o', temp_obj.name], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+      if not arch == "64":
+         arch = "32"
+      else:
+         arch = "64"
+      proc = subprocess.Popen([assembler, '-f', 'win' + arch, temp_asm.name, '-o', temp_obj.name], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
       stdout, stderr = proc.communicate()
 
       if stdout:
@@ -6354,6 +6360,7 @@ def assemble_code(nasm_code):
       if stderr:
          DBG1('assembler stderr:')
          for chunk in stderr.split('\n'): DBG1('... %s' % chunk)
+         worked = False # halt on any error from the assembler
 
       if is_medium():
          DBG2('the assembly code:')
@@ -6370,8 +6377,9 @@ def assemble_code(nasm_code):
       obj_file.close()
    finally:
       os.remove(temp_asm.name)
-      os.remove(temp_obj.name)
-
+      if worked:
+         os.remove(temp_obj.name)
+         
    size = struct.unpack('<L', obj_data[0x24:0x28])[0]
    ptr = struct.unpack('<L', obj_data[0x28:0x2C])[0]
    return obj_data[ptr:ptr+size]
