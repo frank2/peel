@@ -4,6 +4,7 @@ from . import address
 from . import assembly
 from . import base
 from . import buffer
+from . import debug
 from . import headers
 from . import image
 
@@ -16,5 +17,6 @@ __all__ = concat_modules(__name__
                            ,assembly
                            ,base
                            ,buffer
+                           ,debug
                            ,headers
                            ,image])
