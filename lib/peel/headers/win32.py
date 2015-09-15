@@ -2,6 +2,11 @@
 
 import ctypes
 
+import paranoia
+from paranoia.types import *
+
+from paranoia.base.abstract.array import Array
+
 try:
    VirtualProtect = ctypes.windll.kernel32.VirtualProtect
    GetProcAddress = ctypes.windll.kernel32.GetProcAddress
@@ -178,3 +183,12 @@ IMAGE_SUBSYSTEM_WINDOWS_BOOT_APPLICATION   = 16
 # Context record constants
 SIZE_OF_80387_REGISTERS =     80
 MAXIMUM_SUPPORTED_EXTENSION = 512
+
+BYTE = Byte
+WORD = Word
+DWORD = Dword
+QWORD = Qword
+LPBYTE = ByteArray
+LPWORD = WordArray
+LPDWORD = DwordArray
+LPQWORD = QwordArray
