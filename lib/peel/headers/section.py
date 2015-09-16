@@ -7,17 +7,17 @@ from .file import IMAGE_FILE_HEADER
 from .optional import IMAGE_OPTIONAL_HEADER32, IMAGE_OPTIONAL_HEADER64
 from .win32 import *
 
-class Section(Structure):
-   FIELDS = [('Name',                  LPBYTE,  {'elements': 8}),
-             ('VirtualSize',           DWORD),
-             ('VirtualAddress',        DWORD),
-             ('SizeOfRawData',         DWORD),
-             ('PointerToRawData',      DWORD),
-             ('PointerToRelocations',  DWORD),
-             ('PointerToLinenumbers',  DWORD),
-             ('NumberOfRelocations',   WORD),
-             ('NumberOfLinenumbers',   WORD),
-             ('Characteristics',       DWORD)]
+class Section(Structure.simple([
+    ('Name',                  LPBYTE,  {'elements': 8}),
+    ('VirtualSize',           DWORD),
+    ('VirtualAddress',        DWORD),
+    ('SizeOfRawData',         DWORD),
+    ('PointerToRawData',      DWORD),
+    ('PointerToRelocations',  DWORD),
+    ('PointerToLinenumbers',  DWORD),
+    ('NumberOfRelocations',   WORD),
+    ('NumberOfLinenumbers',   WORD),
+    ('Characteristics',       DWORD)])):
 
    def read_section(self):
       addr = self.PointerToRawData.as_offset()
@@ -89,7 +89,7 @@ class Section(Structure):
 
       return ret
 
-class SectionArray(DataArray):
+class SectionArray(Array):
    BASE_CLASS = Section
 
    def add_section(self, **kwargs):
