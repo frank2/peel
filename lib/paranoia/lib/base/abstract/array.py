@@ -55,6 +55,13 @@ class Array(d_list.List):
         return base_bitspan * cls.ELEMENTS
 
     @classmethod
+    def static_size(cls, size):
+        class StaticlySizedArray(cls):
+            ELEMENTS = size
+
+        return StaticlySizedArray
+        
+    @classmethod
     def static_declaration(cls, **kwargs):
         kwargs.setdefault('base_class', cls.BASE_CLASS)
         kwargs.setdefault('elements', cls.ELEMENTS)
@@ -64,8 +71,8 @@ class Array(d_list.List):
 
         super_class = super(Array, cls).static_declaration(**kwargs)
 
-        class StaticArray(super_class):
+        class StaticlyDeclaredArray(super_class):
             BASE_CLASS = kwargs['base_class']
             ELEMENTS = kwargs['elements']
 
-        return StaticArray
+        return StaticlyDeclaredArray

@@ -9,24 +9,24 @@ class StructureError(d_list.ListError):
     pass
 
 class Structure(d_list.List):
-    STRUCT_DECLARATION = None
+    FIELDS = None
 
     def __init__(self, **kwargs):
-        struct_declaration = kwargs.setdefault('struct_declaration', self.STRUCT_DECLARATION)
+        fields = kwargs.setdefault('fields', self.FIELDS)
 
-        if struct_declaration is None or not getattr(struct_declaration, '__iter__', None):
+        if fields is None or not getattr(fields, '__iter__', None):
             raise StructureError('struct_declaration must be a sequence of names and DataDeclarations')
 
-        self.parse_struct_declarations(struct_declaration)
+        self.parse_struct_fields(fields)
         kwargs['declarations'] = self.declarations # for initializing bitspan
 
         d_list.List.__init__(self, **kwargs)
 
-    def parse_struct_declarations(self, declarations):
+    def parse_struct_fields(self, fields):
         self.declarations = list()
         self.struct_map = dict()
 
-        for struct_pair in declarations:
+        for struct_pair in fields:
             if not len(struct_pair) == 2 or not isinstance(struct_pair[0], basestring) or not isinstance(struct_pair[1], declaration.Declaration):
                 raise StructureError('struct_declaration element must be a pair consisting of a string and a Declaration.')
             
@@ -44,11 +44,14 @@ class Structure(d_list.List):
         #    self.calculate_offsets()
 
     def __getattr__(self, attr):
+        if not self.__dict__.has_key('struct_map') and not self.__dict__.has_key(attr):
+            raise AttributeError(attr)
+        elif not self.__dict__.has_key('struct_map'):
+            return self.__dict__[attr]
+
         struct_map = self.__dict__['struct_map']
 
-        if self.__dict__.has_key(attr):
-            return self.__dict__[attr]
-        elif struct_map.has_key(attr):
+        if struct_map.has_key(attr):
             index = struct_map[attr]
             return self.instantiate(index)
         else:
@@ -56,7 +59,7 @@ class Structure(d_list.List):
 
     @classmethod
     def static_bitspan(cls):
-        return sum(map(lambda x: x[1].bitspan(), cls.STRUCT_DECLARATION))
+        return sum(map(lambda x: x[1].bitspan(), cls.FIELDS))
 
     @classmethod
     def simple(cls, declarations):
@@ -91,6 +94,6 @@ class Structure(d_list.List):
                                                                    ,args=args)])
         
         class SimplifiedDataStructure(cls):
-            STRUCT_DECLARATION = new_struct_declaration
+            FIELDS = new_struct_declaration
 
         return SimplifiedDataStructure

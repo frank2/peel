@@ -39,3 +39,7 @@ class Allocator(paranoia_agent.ParanoiaAgent):
 
         del c_string
         del self.address_map[address]
+
+    def __del__(self):
+        for address in self.address_map.keys():
+            self.deallocate(address)

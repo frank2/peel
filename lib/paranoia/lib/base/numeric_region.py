@@ -15,6 +15,8 @@ class NumericRegion(memory_region.MemoryRegion):
     SIGNAGE = 0
     VALUE = None
 
+    # TODO setattr/getattr to intercept rewrites of value
+
     def __init__(self, **kwargs):
         self.endianness = kwargs.setdefault('endianness', self.ENDIANNESS)
 

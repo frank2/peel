@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 from paranoia.base import numeric_region
+from paranoia.base.abstract import array
 from . import byte
 
 class CharError(numeric_region.NumericRegionError):
@@ -18,3 +19,6 @@ class Char(byte.Byte):
             raise CharError('input string can only be one character long')
 
         self.set_value(ord(char))
+
+class CharArray(array.Array):
+    BASE_CLASS = Char

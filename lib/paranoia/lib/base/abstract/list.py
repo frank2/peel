@@ -1,9 +1,8 @@
 #!/usr/bin/env python
 
-from paranoia.base import memory_region, paranoia_agent
-from paranoia.base.abstract import declaration
+from .. import memory_region, paranoia_agent
+from ..abstract import declaration
 from paranoia.converters import *
-from paranoia.types import bitfield
 
 class ListError(paranoia_agent.ParanoiaError):
     pass

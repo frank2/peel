@@ -2,15 +2,17 @@
 
 import ctypes
 
+from paranoia.base import allocator
 from paranoia.base import paranoia_agent
 from paranoia.converters import *
 
 class MemoryRegionError(paranoia_agent.ParanoiaError):
     pass
 
-class MemoryRegion(paranoia_agent.ParanoiaAgent):
+class MemoryRegion(allocator.Allocator):
     BITSPAN = None
     MEMORY_BASE = None
+    AUTO_ALLOCATE = True
     BITSHIFT = 0
     VIRTUAL_BASE = 0
     ALIGNMENT = 8
@@ -18,7 +20,10 @@ class MemoryRegion(paranoia_agent.ParanoiaAgent):
     ALIGN_BYTE = 8
 
     def __init__(self, **kwargs):
+        allocator.Allocator.__init__(self, **kwargs)
+        
         self.alignment = kwargs.setdefault('alignment', self.ALIGNMENT)
+        self.auto_allocate = kwargs.setdefault('auto_allocate', self.AUTO_ALLOCATE)
         self.bitspan = kwargs.setdefault('bitspan', self.BITSPAN)
         self.memory_base = kwargs.setdefault('memory_base', self.MEMORY_BASE)
         self.bitshift = kwargs.setdefault('bitshift', self.BITSHIFT)
@@ -30,12 +35,24 @@ class MemoryRegion(paranoia_agent.ParanoiaAgent):
         if self.bitspan is None or self.bitspan == 0:
             raise MemoryRegionError('bitspan cannot be None or 0')
 
-        if self.memory_base is None:
-            raise MemoryRegionError('memory_base cannot be None')
-
         if self.bitshift > 8 or self.bitshift < 0:
             raise MemoryRegionError('bitshift must be within the range of 0-8 noninclusive')
 
+        if self.memory_base is None and self.auto_allocate:
+            self.memory_base = self.allocate(self.shifted_bytespan())
+        elif self.memory_base is None:
+            raise MemoryRegionError('memory_base cannot be None when allocate is False')
+
+    def bytespan(self):
+        return self.bitspan / 8 + int(not self.bitspan % 8 == 0)
+
+    def shifted_bitspan(self):
+        return self.bitspan + self.bitshift
+
+    def shifted_bytespan(self):
+        shifted = self.shifted_bitspan()
+        return shifted / 8 + int(not shifted % 8 == 0)
+    
     def read_bytes(self, byte_length, byte_offset=0):
         if (byte_length+byte_offset)*8 > align(self.bitspan, 8): 
             raise MemoryRegionError('byte length and offset exceed aligned bitspan (%d, %d, %d)' % (byte_length, byte_offset, align(self.bitspan, 8)))
@@ -158,6 +175,10 @@ class MemoryRegion(paranoia_agent.ParanoiaAgent):
     @classmethod
     def static_bitspan(cls):
         return cls.BITSPAN
+
+    @classmethod
+    def static_bytespan(cls):
+        return cls.BITSPAN / 8 + int(not cls.BITSPAN % 8)
 
     @classmethod
     def static_alignment(cls):

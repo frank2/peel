@@ -31,7 +31,7 @@ def test_MemoryRegion():
     # allocate a string
     c_address = ALLOCATOR.allocate_string('MemoryRegion test')
     c_string = ALLOCATOR.address_map[c_address]
-
+    
     # initialize the region
     region = MemoryRegion(memory_base=c_address, bitspan=len(c_string)*8)
 
@@ -68,11 +68,8 @@ def test_MemoryRegion():
 def test_NumericRegion():
     print '[test_NumericRegion]'
 
-    # allocate a string
-    c_address = ALLOCATOR.allocate_string('\x80\x00\x00\x00')
-    c_string = ALLOCATOR.address_map[c_address]
-
-    region = NumericRegion(memory_base=c_address, bitspan=(len(c_string)-1)*8)
+    region = NumericRegion(bitspan=4*8)
+    region.set_value(0x80)
     assert region.get_value() == 0x80
     region.endianness = NumericRegion.BIG_ENDIAN
     assert region.get_value() == 0x80000000
@@ -98,43 +95,37 @@ def test_NumericRegion():
     region.set_value(0x77995566)
     assert region.get_value() == 0x5566
     print '[NumericRegion.set_value: PASS]'
-    
-    ALLOCATOR.deallocate(c_address)
 
 def test_NumericTypes():
-    c_address = ALLOCATOR.allocate(8)
-
     print '[test_Bitfield]'
-    bitfield_object = Bitfield(memory_base=c_address, bitspan=4)
+    bitfield_object = Bitfield(bitspan=4)
     bitfield_object.set_value(0x22) # test bit-level truncation
     assert bitfield_object.get_value() == 0x2
     print '[Bitfield: PASS]'
 
     print '[test_Byte]'
-    byte_object = Byte(memory_base=c_address)
+    byte_object = Byte()
     byte_object.set_value(0x66)
     assert byte_object.get_value() == 0x66
     print '[Byte: PASS]'
 
     print '[test_Word]'
-    word_object = Word(memory_base=c_address)
+    word_object = Word()
     word_object.set_value(0x7777)
     assert word_object.get_value() == 0x7777
     print '[Word: PASS]'
 
     print '[test_Dword]'
-    dword_object = Dword(memory_base=c_address)
+    dword_object = Dword()
     dword_object.set_value(0x88888888)
     assert dword_object.get_value() == 0x88888888
     print '[Dword: PASS]'
 
     print '[test_Qword]'
-    qword_object = Qword(memory_base=c_address)
+    qword_object = Qword()
     qword_object.set_value(0x2222222222222222)
     assert qword_object.get_value() == 0x2222222222222222
     print '[Qword: PASS]'
-
-    ALLOCATOR.deallocate(c_address)
 
 def test_CharTypes():
     # allocate a string
@@ -259,6 +250,14 @@ def test_Array():
     byte_array.elements = 15
     assert len(byte_array.declarations) == 15
     print '[Array.parse_elements: PASS]'
+
+    class SizeTestClass(Array):
+        BASE_CLASS = Byte
+
+    StaticSizeClass = SizeTestClass.static_size(20)
+    byte_array = StaticSizeClass(memory_base=c_address)
+    assert len(byte_array.declarations) == 20
+    assert byte_array.instantiate(5).get_value() == 0x50
 
     ALLOCATOR.deallocate(c_address)
 

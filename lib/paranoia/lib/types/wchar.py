@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 from paranoia.base import numeric_region
+from paranoia.base.abstract import array
 from . import word
 
 class WcharError(numeric_region.NumericRegionError):
@@ -18,3 +19,6 @@ class Wchar(word.Word):
             raise WcharError('input string can only be one character long')
 
         self.write_bits_from_bytes(map(ord, wchar.encode('utf-16be')))
+
+class WcharArray(array.Array):
+    BASE_CLASS = Wchar

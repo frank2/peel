@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-from paranoia.base import paranoia_agent
+from .. import paranoia_agent
 
 class DeclarationError(paranoia_agent.ParanoiaError):
     pass
@@ -23,7 +23,7 @@ class Declaration:
         if not isinstance(self.args, dict):
             raise DeclarationError('args must be a dictionary object')
 
-    def instantiate(self, memory_base, bitshift=0):
+    def instantiate(self, memory_base=None, bitshift=0):
         # make a copy of our argument instantiation
         arg_dict = dict(self.args.items()[:])
         arg_dict['memory_base'] = memory_base
