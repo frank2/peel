@@ -63,6 +63,15 @@ def test_MemoryRegion():
     assert region.read_bits_from_bytes(12, 6) == [1] * 12
     print '[MemoryRegion.write_bits: PASS]'
 
+    misaligned = MemoryRegion(memory_base=c_address, bitspan=12)
+    assert misaligned.bitspan == 12
+    assert misaligned.bytespan() == 2
+    misaligned.bitshift = 5
+    assert misaligned.bitspan == 12
+    assert misaligned.shifted_bitspan() == 17
+    assert misaligned.shifted_bytespan() == 3
+    print '[MemoryRegion.alignment: PASS]'
+
     ALLOCATOR.deallocate(c_address)
 
 def test_NumericRegion():
@@ -258,6 +267,7 @@ def test_Array():
     byte_array = StaticSizeClass(memory_base=c_address)
     assert len(byte_array.declarations) == 20
     assert byte_array.instantiate(5).get_value() == 0x50
+    print '[Array.static_size: PASS]'
 
     ALLOCATOR.deallocate(c_address)
 
@@ -324,6 +334,46 @@ def test_Structure():
     assert structure_instance.qword_obj.get_value() == 0x554e4441554e4441
     assert structure_instance.array_obj[0].get_value() == 0x44
 
+    print '[Structure: PASS]'
+
+def test_Union():
+    print '[test_Union]'
+
+    array_class = Array.static_declaration(base_class=Byte, elements=7)
+
+    nested_structure = Structure.simple(
+        [('dword_obj', Dword)
+         ,('word_obj', Word)
+         ,('byte_obj', Byte)])
+
+    union_class = Union.simple({
+        'array': array_class,
+        'structure': nested_structure,
+        'qword': Qword,
+        'dword': Dword,
+        'word': Word,
+        'byte': Byte,
+        'bitfield': (Bitfield, {'bitspan': 8*8+1})})
+
+    union_size = union_class.static_bitspan()
+    assert union_size == 65
+
+    union_size = union_class.static_bytespan()
+    assert union_size == 9
+
+    union_instance = union_class()
+    union_instance.array[0].set_value(0x42)
+    assert union_instance.structure.dword_obj.get_value() == 0x42
+
+    union_instance.structure.word_obj.set_value(0x42)
+    assert union_instance.array[4].get_value() == 0x42
+    assert union_instance.qword.get_value() == 0x4200000042
+
+    # FIXME not sure if this test is correct.
+    union_instance.structure.byte_obj.set_value(0x42)
+    assert union_instance.array[6].get_value() == 0x42
+    assert union_instance.bitfield.get_value() == 0x8400840000008400
+
 def main(*args):
     test_Allocator()
     test_MemoryRegion()
@@ -334,6 +384,7 @@ def main(*args):
     test_List()
     test_Array()
     test_Structure()
+    test_Union()
 
 if __name__ == '__main__':
     cProfile.run('main(*sys.argv[1:])')

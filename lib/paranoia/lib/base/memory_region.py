@@ -44,14 +44,13 @@ class MemoryRegion(allocator.Allocator):
             raise MemoryRegionError('memory_base cannot be None when allocate is False')
 
     def bytespan(self):
-        return self.bitspan / 8 + int(not self.bitspan % 8 == 0)
+        return align(self.bitspan, self.alignment) / 8
 
     def shifted_bitspan(self):
         return self.bitspan + self.bitshift
 
     def shifted_bytespan(self):
-        shifted = self.shifted_bitspan()
-        return shifted / 8 + int(not shifted % 8 == 0)
+        return align(self.shifted_bitspan(), self.alignment) / 8
     
     def read_bytes(self, byte_length, byte_offset=0):
         if (byte_length+byte_offset)*8 > align(self.bitspan, 8): 
@@ -177,12 +176,14 @@ class MemoryRegion(allocator.Allocator):
         return cls.BITSPAN
 
     @classmethod
-    def static_bytespan(cls):
-        return cls.BITSPAN / 8 + int(not cls.BITSPAN % 8)
-
-    @classmethod
     def static_alignment(cls):
         return cls.ALIGNMENT
+
+    @classmethod
+    def static_bytespan(cls):
+        bitspan = cls.static_bitspan()
+        alignment = cls.static_alignment()
+        return align(bitspan, alignment) / 8
 
     @classmethod
     def static_declaration(cls, **kwargs):

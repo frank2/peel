@@ -20,17 +20,26 @@ class List(memory_region.MemoryRegion):
             raise ListError('declarations must be a list of Declaration objects')
 
         self.memory_base = kwargs.setdefault('memory_base', self.MEMORY_BASE)
-
-        if self.memory_base is None:
-            raise ListError('memory_base cannot be None')
-
         self.bitshift = kwargs.setdefault('bitshift', self.BITSHIFT)
 
         self.declaration_offsets = dict()
+        was_none = self.memory_base == None
+
+        if was_none:
+            self.memory_base = 0
+            
         self.calculate_offsets()
 
+        if was_none:
+            self.memory_base = None
+
         kwargs['bitspan'] = self.bitspan
+
         memory_region.MemoryRegion.__init__(self, **kwargs)
+
+        if was_none:
+            for k in self.declaration_offsets.keys():
+                self.declaration_offsets[k]['memory_base'] += self.memory_base
 
     def calculate_offsets(self, start_from=0):
         # truncate the declaration offsets to only that which currently exist

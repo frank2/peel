@@ -2,8 +2,7 @@
 
 from . import list as d_list
 from . import declaration
-
-from paranoia.base import memory_region
+from .. import memory_region
 
 class StructureError(d_list.ListError):
     pass
