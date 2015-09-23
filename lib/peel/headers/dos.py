@@ -1,31 +1,31 @@
 #!/usr/bin/env python
 
-from paranoia.base.abstract.structure import Structure
+from paranoia.types.structure import Structure
 
 from .win32 import *
 
-class DOSHeader(Structure):
-   FIELDS = [('e_magic',     WORD),
-             ('e_cblp',      WORD),
-             ('e_cp',        WORD),
-             ('e_crlc',      WORD),
-             ('e_cparhdr',   WORD),  
-             ('e_minalloc',  WORD),
-             ('e_maxalloc',  WORD),
-             ('e_ss',        WORD),
-             ('e_sp',        WORD),
-             ('e_csum',      WORD),
-             ('e_ip',        WORD),
-             ('e_cs',        WORD),
-             ('e_lfarlc',    WORD),
-             ('e_ovno',      WORD),
-             ('e_res',       WORD),
-             ('e_unused1',   LPBYTE,  {'elements': 6}),
-             ('e_oemid',     WORD),
-             ('e_oeminfo',   WORD),
-             ('e_res2',      WORD),
-             ('e_unused2',   LPBYTE,  {'elements': 0x12}),
-             ('e_lfanew',    DWORD)]
+class DOSHeader(Structure.simple([
+   ('e_magic',     WORD)
+   ,('e_cblp',      WORD)
+   ,('e_cp',        WORD)
+   ,('e_crlc',      WORD)
+   ,('e_cparhdr',   WORD)
+   ,('e_minalloc',  WORD)
+   ,('e_maxalloc',  WORD)
+   ,('e_ss',        WORD)
+   ,('e_sp',        WORD)
+   ,('e_csum',      WORD)
+   ,('e_ip',        WORD)
+   ,('e_cs',        WORD)
+   ,('e_lfarlc',    WORD)
+   ,('e_ovno',      WORD)
+   ,('e_res',       WORD)
+   ,('e_unused1',   LPBYTE.static_size(6))
+   ,('e_oemid',     WORD)
+   ,('e_oeminfo',   WORD)
+   ,('e_res2',      WORD)
+   ,('e_unused2',   LPBYTE.static_size(0x12))
+   ,('e_lfanew',    DWORD)]
 
    DOS_WARNING = [0x0E,0x1F,0xBA,0x0E,0x00,0xB4,0x09,0xCD,0x21,0xB8,0x01,0x4C,
                   0xCD,0x21,0x54,0x68,0x69,0x73,0x20,0x70,0x72,0x6F,0x67,0x72,

@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-from paranoia.base.abstract.structure import Structure
+from paranoia.types.structure import Structure
 from paranoia.base.abstract.array import Array
 
 from .file import IMAGE_FILE_HEADER
@@ -8,16 +8,16 @@ from .optional import IMAGE_OPTIONAL_HEADER32, IMAGE_OPTIONAL_HEADER64
 from .win32 import *
 
 class Section(Structure.simple([
-    ('Name',                  LPBYTE,  {'elements': 8}),
-    ('VirtualSize',           DWORD),
-    ('VirtualAddress',        DWORD),
-    ('SizeOfRawData',         DWORD),
-    ('PointerToRawData',      DWORD),
-    ('PointerToRelocations',  DWORD),
-    ('PointerToLinenumbers',  DWORD),
-    ('NumberOfRelocations',   WORD),
-    ('NumberOfLinenumbers',   WORD),
-    ('Characteristics',       DWORD)])):
+   ('Name',                   LPBYTE.static_size(8))
+   ,('VirtualSize',           DWORD)
+   ,('VirtualAddress',        DWORD)
+   ,('SizeOfRawData',         DWORD)
+   ,('PointerToRawData',      DWORD)
+   ,('PointerToRelocations',  DWORD)
+   ,('PointerToLinenumbers',  DWORD)
+   ,('NumberOfRelocations',   WORD)
+   ,('NumberOfLinenumbers',   WORD)
+   ,('Characteristics',       DWORD)])):
 
    def read_section(self):
       addr = self.PointerToRawData.as_offset()

@@ -1,17 +1,17 @@
 #!/usr/bin/env python
 
-from paranoia.base.abstract.structure import Structure
+from paranoia.types.structure import Structure
 
 from .win32 import *
 
 class FileHeader(Structure.simple([
-    ('Machine',              WORD),
-    ('NumberOfSections',     WORD),
-    ('TimeDateStamp',        DWORD),
-    ('PointerToSymbolTable', DWORD),
-    ('NumberOfSymbols',      DWORD),
-    ('SizeOfOptionalHeader', WORD),
-    ('Characteristics',      WORD)])):
+   ('Machine',              WORD)
+   ,('NumberOfSections',     WORD)
+   ,('TimeDateStamp',        DWORD)
+   ,('PointerToSymbolTable', DWORD)
+   ,('NumberOfSymbols',      DWORD)
+   ,('SizeOfOptionalHeader', WORD)
+   ,('Characteristics',      WORD)])):
 
    def __init__(self, **kwargs):
       Structure.__init__(self, **kwargs)

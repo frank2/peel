@@ -5,6 +5,7 @@ import ctypes
 import paranoia
 from paranoia.types import *
 
+from paranoia.types.structure import Structure
 from paranoia.base.abstract.array import Array
 
 try:
@@ -192,3 +193,47 @@ LPBYTE = ByteArray
 LPWORD = WordArray
 LPDWORD = DwordArray
 LPQWORD = QwordArray
+
+class FloatingSaveArea(Structure.simple([
+      ('ControlWord',           DWORD)
+      ,('StatusWord',            DWORD)
+      ,('TagWord',               DWORD)
+      ,('ErrorOffset',           DWORD)
+      ,('ErrorSelector',         DWORD)
+      ,('DataOffset',            DWORD)
+      ,('DataSelector',          DWORD)
+      ,('RegisterArea',          LPBYTE.static_size(SIZE_OF_80387_REGISTERS))
+      ,('Cr0NpxState',           DWORD)])):
+   pass
+
+FLOATING_SAVE_AREA = FloatingSaveArea
+
+class Context(Structure.simple([
+      ('ContextFlags',          DWORD)
+      ,('Dr0',                   DWORD)
+      ,('Dr1',                   DWORD)
+      ,('Dr2',                   DWORD)
+      ,('Dr3',                   DWORD)
+      ,('Dr6',                   DWORD)
+      ,('Dr7',                   DWORD)
+      ,('FloatSave',             FLOATING_SAVE_AREA)
+      ,('SegGs',                 DWORD)
+      ,('SegFs',                 DWORD)
+      ,('SegEs',                 DWORD)
+      ,('SegDs',                 DWORD)
+      ,('Edi',                   DWORD)
+      ,('Esi',                   DWORD)
+      ,('Ebx',                   DWORD)
+      ,('Edx',                   DWORD)
+      ,('Ecx',                   DWORD)
+      ,('Eax',                   DWORD)
+      ,('Ebp',                   DWORD)
+      ,('Eip',                   DWORD)
+      ,('SegCs',                 DWORD)
+      ,('EFlags',                DWORD)
+      ,('Esp',                   DWORD)
+      ,('SegSs',                 DWORD)
+      ,('ExtendedRegisters',     LPBYTE.static_size(MAXIMUM_SUPPORTED_EXTENSION))])):
+   pass
+
+CONTEXT = Context

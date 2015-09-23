@@ -1,15 +1,15 @@
 #!/usr/bin/env python
 
-from paranoia.base.abstract.structure import Structure
+from paranoia.types.structure import Structure
 
 from .file import IMAGE_FILE_HEADER
 from .optional import IMAGE_OPTIONAL_HEADER32, IMAGE_OPTIONAL_HEADER64
 from .win32 import *
 
 class NTHeaders32(Structure.simple([
-    ('Signature',       DWORD),
-    ('FileHeader',      IMAGE_FILE_HEADER),
-    ('OptionalHeader',  IMAGE_OPTIONAL_HEADER32)])):
+   ('Signature',       DWORD)
+   ,('FileHeader',      IMAGE_FILE_HEADER)
+   ,('OptionalHeader',  IMAGE_OPTIONAL_HEADER32)])):
 
    def __init__(self, **kwargs):
       Structure.__init__(self, **kwargs)
