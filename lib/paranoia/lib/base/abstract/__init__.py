@@ -3,8 +3,7 @@
 from . import array
 from . import declaration
 from . import list
-from . import structure
-from . import union
+from . import mapping
 from paranoia import concat_modules
 
 __all__ = concat_modules(__name__
@@ -13,5 +12,4 @@ __all__ = concat_modules(__name__
                          ,[array
                            ,declaration
                            ,list
-                           ,structure
-                           ,union])
+                           ,mapping])
