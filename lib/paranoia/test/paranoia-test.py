@@ -390,6 +390,40 @@ def test_Union():
     assert union_instance.array[6].get_value() == 0x42
     assert union_instance.bitfield.get_value() == 0x8400840000008400
 
+def test_Pointer():
+    print '[test_Pointer]'
+
+    dword_obj = Dword()
+    dword_obj.set_value(0x32323232)
+
+    qword_obj = Qword()
+    qword_obj.set_value(0x6464646464646464)
+
+    if dword_obj.memory_base < 0xFFFFFFFF:
+        pointer_class = Pointer32
+    else:
+        pointer_class = Pointer64
+
+    pointer_32 = pointer_class.cast(Dword)()
+    pointer_64 = pointer_class.cast(Qword)()
+
+    pointer_32.set_value(dword_obj.memory_base)
+    assert pointer_32.deref().get_value() == 0x32323232
+
+    pointer_64.set_value(qword_obj.memory_base)
+    assert pointer_64.deref().get_value() == 0x6464646464646464
+
+    pointer_32.offset_base = dword_obj.memory_base - 0x20
+    pointer_32.set_value(0x20)
+
+    pointer_64.offset_base = qword_obj.memory_base - 0x40
+    pointer_64.set_value(0x40)
+
+    assert pointer_32.deref().get_value() == 0x32323232
+    assert pointer_64.deref().get_value() == 0x6464646464646464
+
+    print '[Pointer: PASS]'
+
 def main(*args):
     test_Allocator()
     test_MemoryRegion()
@@ -401,6 +435,7 @@ def main(*args):
     test_Array()
     test_Structure()
     test_Union()
+    test_Pointer()
 
 if __name__ == '__main__':
     cProfile.run('main(*sys.argv[1:])')

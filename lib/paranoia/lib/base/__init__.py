@@ -5,6 +5,7 @@ from . import allocator
 from . import memory_region
 from . import numeric_region
 from . import paranoia_agent
+from . import pointer
 
 from paranoia import concat_modules
 
@@ -15,4 +16,5 @@ __all__ = concat_modules(__name__
                            ,allocator
                            ,memory_region
                            ,numeric_region
-                           ,paranoia_agent])
+                           ,paranoia_agent
+                           ,pointer])

@@ -14,7 +14,6 @@ class MemoryRegion(allocator.Allocator):
     MEMORY_BASE = None
     AUTO_ALLOCATE = True
     BITSHIFT = 0
-    VIRTUAL_BASE = 0
     ALIGNMENT = 8
     ALIGN_BIT = 1
     ALIGN_BYTE = 8
@@ -27,7 +26,6 @@ class MemoryRegion(allocator.Allocator):
         self.bitspan = kwargs.setdefault('bitspan', self.BITSPAN)
         self.memory_base = kwargs.setdefault('memory_base', self.MEMORY_BASE)
         self.bitshift = kwargs.setdefault('bitshift', self.BITSHIFT)
-        self.virtual_base = kwargs.setdefault('virtual_base', self.VIRTUAL_BASE)
 
         if self.alignment is None or self.alignment < 0:
             raise MemoryRegionError('alignment cannot be None or less than 0')
@@ -190,12 +188,10 @@ class MemoryRegion(allocator.Allocator):
         kwargs.setdefault('bitspan', cls.BITSPAN)
         kwargs.setdefault('memory_base', cls.MEMORY_BASE)
         kwargs.setdefault('bitshift', cls.BITSHIFT)
-        kwargs.setdefault('virtual_base', cls.VIRTUAL_BASE)
 
         class StaticMemoryRegion(cls):
             BITSPAN = kwargs['bitspan']
             MEMORY_BASE = kwargs['memory_base']
             BITSHIFT = kwargs['bitshift']
-            VIRTUAL_BASE = kwargs['virtual_base']
 
         return StaticMemoryRegion
