@@ -23,11 +23,12 @@ class Declaration:
         if not isinstance(self.args, dict):
             raise DeclarationError('args must be a dictionary object')
 
-    def instantiate(self, memory_base=None, bitshift=0):
+    def instantiate(self, memory_base=None, bitshift=0, parent=None):
         # make a copy of our argument instantiation
         arg_dict = dict(self.args.items()[:])
         arg_dict['memory_base'] = memory_base
         arg_dict['bitshift'] = bitshift
+        arg_dict['parent_region'] = parent
 
         return self.base_class(**arg_dict)
 

@@ -203,6 +203,7 @@ def test_List():
     assert isinstance(byte_item, Byte)
     assert byte_item.get_value() == 0
     assert byte_item.memory_base == c_address
+    assert byte_item.parent_region == data_list
 
     word_item = data_list.instantiate(1)
     assert isinstance(word_item, Word)

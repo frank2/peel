@@ -127,7 +127,7 @@ class List(memory_region.MemoryRegion):
         memory_base = self.declaration_offsets[index]['memory_base']
         bitshift = self.declaration_offsets[index]['bitshift']
 
-        instance = self.declarations[index].instantiate(memory_base, bitshift)
+        instance = self.declarations[index].instantiate(memory_base, bitshift, self)
 
         return instance
 
