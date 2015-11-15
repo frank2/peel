@@ -23,13 +23,19 @@ class Pointer(numeric_region.NumericRegion):
         
         numeric_region.NumericRegion.__init__(self, **kwargs)
 
-    def deref(self):
+    def deref(self, casting_class=None):
         address = self.get_value()
         
         if not self.offset_base == None:
             address += self.offset_base
+
+        if casting_class is None:
+            casting_class = self.casting_class
+
+        if casting_class is None:
+            raise PointerError('no casting class given for dereference')
         
-        return self.casting_class(memory_base=address)
+        return casting_class(memory_base=address)
 
     @classmethod
     def cast(cls, casting_class):
