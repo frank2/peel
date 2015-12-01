@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 
 from paranoia.types.structure import Structure
-from paranoia.types.typedefs import *
 
 from peel.types.offset import Offset32
+from peel.types.typedefs import *
 
 class FileHeader(Structure.simple([
         ('Machine', WORD)
