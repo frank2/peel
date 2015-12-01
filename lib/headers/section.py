@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+from paranoia.base.abstract.array import Array
 from paranoia.types.structure import Structure
 from paranoia.types.union import Union
 
@@ -21,3 +22,6 @@ class SectionHeader(Structure.simple([
         ,('NumberOfLinenumbers', WORD)
         ,('Characteristics', DWORD)])):
     pass
+
+class SectionTable(Array):
+    BASE_CLASS = SectionHeader

@@ -13,7 +13,7 @@ SHORT = Word.static_declaration(signage=Word.SIGNED)
 LONG = Dword.static_declaration(signage=Dword.SIGNED)
 LONGLONG = Qword.static_declaration(signage=Qword.SIGNED)
 
-BYTE_ARRAY = Array.static_declaration(base_class=BYTE)
+BYTE_ARRAY = ByteArray
 WORD_ARRAY = Array.static_declaration(base_class=WORD)
 DWORD_ARRAY = Array.static_declaration(base_class=DWORD)
 QWORD_ARRAY = Array.static_declaration(base_class=QWORD)

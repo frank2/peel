@@ -67,9 +67,13 @@ def concat_modules(package_name, package_locals, init_list, module_list):
 
 from . import headers
 from . import types
+from . import overlay
+from . import image
 
 __all__ = concat_modules(__name__
                          ,locals()
                          ,['.', 'module_enum', 'module_hash', 'concat_modules']
                          ,[headers
-                           ,types])
+                           ,types
+                           ,overlay
+                           ,image])
