@@ -36,9 +36,9 @@ class Image(object):
         self.virtual = None
 
         if raw_data and not parse_raw:
-            self.create_raw_overlay(image_data=raw_data)
+            self.create_raw_overlay(overlay_data=raw_data)
         if virtual_data and not parse_virtual:
-            self.create_virtual_overlay(image_data=virtual_data)
+            self.create_virtual_overlay(overlay_data=virtual_data)
 
         if parse_raw:
             self.parse_raw_overlay()
@@ -46,10 +46,12 @@ class Image(object):
             self.parse_virtual_overlay()
 
     def create_raw_overlay(self, **kwargs):
+        kwargs.setdefault('image', self)
         self.raw = RawOverlay(**kwargs)
         return self.raw
 
     def create_virtual_overlay(self, **kwargs):
+        kwargs.setdefault('image', self)
         self.virtual = VirtualOverlay(**kwargs)
         return self.virtual
 

@@ -11,24 +11,37 @@ class OverlayError(Exception):
     pass
 
 class Overlay(MemoryRegion):
+    IMAGE = None
+    
     OVERLAY_TYPE = None
-    IMAGE_DATA = None
-    IMAGE_SIZE = None
+    OVERLAY_DATA = None
+    OVERLAY_SIZE = None
 
     OVERLAY_RAW = 0
     OVERLAY_VIRTUAL = 1
     
     def __init__(self, **kwargs):
         self.overlay_type = kwargs.setdefault('overlay_type', self.OVERLAY_TYPE)
+        self.image = kwargs.setdefault('image', self.IMAGE)
 
-        image_data = kwargs.setdefault('image_data', self.IMAGE_DATA)
-        image_size = kwargs.setdefault('image_size', self.IMAGE_SIZE)
+        if not self.image:
+            raise OverlayError('overlay must be associated with an image')
 
-        if image_data:
-            kwargs['string_data'] = image_data
+        if self.image:
+            # XXX HACK prevents circular dependencies
+            from peel.image import Image
 
-        if image_size:
-            kwargs['bitspan'] = image_size * 8
+            if not isinstance(self.image, Image):
+                raise OverlayError('image must be an Image instance')
+
+        overlay_data = kwargs.setdefault('overlay_data', self.OVERLAY_DATA)
+        overlay_size = kwargs.setdefault('overlay_size', self.OVERLAY_SIZE)
+
+        if overlay_data:
+            kwargs['string_data'] = overlay_data
+
+        if overlay_size:
+            kwargs['bitspan'] = overlay_size * 8
 
         MemoryRegion.__init__(self, **kwargs)
 
@@ -84,17 +97,16 @@ class Overlay(MemoryRegion):
         return Offset32(value=value, parent_region=self)
 
     def rva(self, value):
-        pass
+        return RVA32(value=value, parent_region=self)
 
     def va(self, value):
-        pass
+        return VA32(value=value, parent_region=self)
 
     def pva(self, value):
-        pass
+        return PVA32(value=value, parent_region=self)
 
 class RawOverlay(Overlay):
     OVERLAY_TYPE = Overlay.OVERLAY_RAW
         
 class VirtualOverlay(Overlay):
     OVERLAY_TYPE = Overlay.OVERLAY_VIRTUAL
-        
